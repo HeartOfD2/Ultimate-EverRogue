@@ -1,6 +1,8 @@
 -- ---------------------------------------------------------------------------
 -- UI building blocks in the addon's flat style: windows, tabs, buttons,
 -- checkboxes, sliders, text boxes, a dropdown menu and a message box.
+-- Split over Widgets.lua (basic controls), WidgetMenu.lua, WidgetColor.lua
+-- and WidgetDialog.lua; all add to ns.UI.
 -- No Blizzard templates are needed, so they look the same on every client.
 -- ---------------------------------------------------------------------------
 local _, ns = ...
@@ -71,6 +73,22 @@ function UI.Label(parent, text, x, y)
 end
 
 -- muted text that wraps at the given width
+-- puts a font file on a FontString so that it shows at once: the client does not always
+-- repaint an unchanged text after SetFont, and a face loaded for the first time may only
+-- be ready a frame later, so the text is set fresh now and once more on the next frame.
+-- SetFont's return value says nothing on this client, so it is not trusted.
+function UI.ShowInFont(fs, path, size, flags, text)
+    local function apply()
+        if not (path and pcall(fs.SetFont, fs, path, size, flags or "")) then
+            pcall(fs.SetFont, fs, ns.FONT_DEFAULT or STANDARD_TEXT_FONT, size, flags or "")
+        end
+        fs:SetText("")
+        fs:SetText(text)
+    end
+    apply()
+    if C_Timer and C_Timer.After then C_Timer.After(0, apply) end
+end
+
 function UI.Hint(parent, text, width)
     local fs = Text(parent, 11)
     fs:SetJustifyH("LEFT")
@@ -165,6 +183,106 @@ function UI.ArrowButton(parent, up, onClick)
     return b
 end
 
+-- thin scroll bar for a list that shows `view` of `total` items. The list calls
+-- bar:Update(total, view, offset) whenever those change; a click or drag on the
+-- bar calls onScroll(offset) (0-based, the first item shown). Hidden while all fit.
+function UI.ScrollBar(parent, onScroll)
+    local bar = CreateFrame("Frame", nil, parent)
+    bar:SetWidth(6)
+    bar:EnableMouse(true)
+    bar.track = bar:CreateTexture(nil, "BACKGROUND")
+    bar.track:SetAllPoints()
+    ns.Color(bar.track, T.divider)
+    bar.thumb = bar:CreateTexture(nil, "ARTWORK")
+    bar.thumb:SetWidth(6)
+    ns.Color(bar.thumb, T.muted)
+    bar.total, bar.view, bar.offset = 0, 0, 0
+    local function Range() return math.max(0, bar.total - bar.view) end
+    function bar:Update(total, view, offset)
+        self.total, self.view, self.offset = total, view, offset
+        local range = Range()
+        self:SetShown(range > 0)
+        if range <= 0 then return end
+        local h = self:GetHeight() or 100
+        local thumbH = math.max(14, h * view / total)
+        self.thumb:SetHeight(thumbH)
+        self.thumb:ClearAllPoints()
+        self.thumb:SetPoint("TOP", self, "TOP", 0, -(h - thumbH) * offset / range)
+    end
+    -- the pointer's place on the bar -> an offset
+    local function OffsetAt()
+        local _, y = GetCursorPosition()
+        local top, h = bar:GetTop(), bar:GetHeight()
+        if not (y and top and h and h > 0) then return bar.offset end
+        local frac = (top - y / (UIParent:GetEffectiveScale() or 1)) / h
+        return math.max(0, math.min(Range(), math.floor(frac * (Range() + 1))))
+    end
+    bar:SetScript("OnMouseDown", function(self)
+        onScroll(OffsetAt())
+        self:SetScript("OnUpdate", function(me)   -- only while the button is held
+            if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then me:SetScript("OnUpdate", nil) return end
+            onScroll(OffsetAt())
+        end)
+    end)
+    bar:SetScript("OnMouseUp", function(self) self:SetScript("OnUpdate", nil) end)
+    return bar
+end
+
+-- a scrolling column: area.child holds the content (its width follows the area), the wheel
+-- and a thin bar scroll it when area:SetContentHeight(h) is taller than the area. Without
+-- overflow nothing scrolls and the bar stays hidden.
+local WHEEL_STEP = 24
+-- pad: a margin inside the clipping edge, so the 1 px outlines our controls draw
+-- just outside their frame are not cut off (sf.child is then the inset content frame)
+function UI.ScrollArea(parent, pad)
+    pad = pad or 0
+    local sf = CreateFrame("ScrollFrame", nil, parent)
+    local child = CreateFrame("Frame", nil, sf)
+    child:SetSize(1, 1)
+    sf:SetScrollChild(child)
+    local content = child
+    if pad > 0 then
+        content = CreateFrame("Frame", nil, child)
+        content:SetPoint("TOPLEFT", pad, -pad)
+        content:SetPoint("TOPRIGHT", -pad, -pad)
+        content:SetHeight(1)
+    end
+    sf.child, sf.contentH = content, 1
+    sf:EnableMouseWheel(true)
+    sf.bar = UI.ScrollBar(parent, function(offset) sf:ScrollTo(offset) end)
+    sf.bar:SetPoint("TOPRIGHT", sf, "TOPRIGHT", 0, 0)
+    sf.bar:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", 0, 0)
+    local function Range() return math.max(0, sf.contentH - (sf:GetHeight() or 0)) end
+    function sf:ScrollTo(px)
+        px = math.max(0, math.min(Range(), px or 0))
+        self:SetVerticalScroll(px)
+        self.bar:Update(self.contentH, self:GetHeight() or 0, px)
+    end
+    function sf:SetContentHeight(h)
+        h = h + 2 * pad
+        self.contentH = h
+        child:SetHeight(math.max(1, h))
+        self:ScrollTo(self:GetVerticalScroll())   -- clamp to the new range
+    end
+    -- scrolls just far enough to show the band top..bottom (distances below the top of the content)
+    function sf:EnsureVisible(top, bottom)
+        local cur, view = self:GetVerticalScroll(), self:GetHeight() or 0
+        if top < cur then
+            self:ScrollTo(top)
+        elseif bottom > cur + view then
+            self:ScrollTo(bottom - view)
+        end
+    end
+    sf:SetScript("OnMouseWheel", function(self, delta)
+        self:ScrollTo(self:GetVerticalScroll() - delta * WHEEL_STEP)
+    end)
+    sf:SetScript("OnSizeChanged", function(self, w)
+        child:SetWidth(math.max(1, w or 1))
+        self:ScrollTo(self:GetVerticalScroll())
+    end)
+    return sf
+end
+
 -- flat checkbox: accent square when on
 function UI.Check(parent)
     local c = CreateFrame("Button", nil, parent)
@@ -239,9 +357,18 @@ function UI.Slider(parent, minV, maxV, step, get, set, width)
         set(math.floor((minV + (maxV - minV) * pct) / step + 0.5) * step)
         s:Refresh()
     end
-    s:SetScript("OnMouseDown", function(self) self.dragging = true FromCursor() end)
+    s:SetScript("OnMouseDown", function(self)
+        if self.disabled then return end
+        self.dragging = true
+        FromCursor()
+    end)
     s:SetScript("OnMouseUp", function(self) self.dragging = false end)
     s:SetScript("OnUpdate", function(self) if self.dragging then FromCursor() end end)
+    function s:SetDisabled(d)
+        self.disabled = d
+        if d then self.dragging = false end
+        self:SetAlpha(d and 0.4 or 1)
+    end
     function s:Refresh()
         local pct = math.max(0, math.min(1, (get() - minV) / (maxV - minV)))
         self.fill:SetWidth(math.max(1, pct * self:GetWidth()))
@@ -368,106 +495,6 @@ function UI.Tabs(parent, tabs, x, y, width, onSelect)
     return row
 end
 
--- ---------------------------------------------------------------------------
--- Dropdown menu (one shared instance). items = { { label, fn, checked, icon,
--- isTitle, divider } }. A full-screen catcher closes it on any outside click.
--- ---------------------------------------------------------------------------
-do
-    local ROW_H, PAD = 20, 4
-    local menu = CreateFrame("Frame", "EverFrameMenu", UIParent)
-    menu:SetFrameStrata("TOOLTIP")
-    menu:EnableMouse(true)
-    menu:Hide()
-    Skin(menu, T.popover)
-    menu.rows = {}
-    local catcher = CreateFrame("Button", nil, UIParent)
-    catcher:SetAllPoints()
-    catcher:SetFrameStrata("DIALOG")
-    catcher:Hide()
-    local function Close() menu:Hide() catcher:Hide() end
-    catcher:SetScript("OnClick", Close)
-    UI.CloseMenu = Close
-    UI.menu = menu
-
-    local function Row(i)
-        local r = menu.rows[i]
-        if r then return r end
-        r = CreateFrame("Button", nil, menu)
-        r:SetHeight(ROW_H)
-        r.sel = r:CreateTexture(nil, "BACKGROUND", nil, 1)
-        r.sel:SetAllPoints()
-        ns.Color(r.sel, T.accentSoft)
-        r.mark = r:CreateTexture(nil, "ARTWORK")
-        r.mark:SetPoint("TOPLEFT")
-        r.mark:SetPoint("BOTTOMLEFT")
-        r.mark:SetWidth(2)
-        ns.Color(r.mark, T.accent)
-        r.icon = r:CreateTexture(nil, "ARTWORK")
-        r.icon:SetSize(14, 14)
-        r.icon:SetPoint("LEFT", 8, 0)
-        r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        r.text = Text(r, 12)
-        r.text:SetJustifyH("LEFT")
-        r.desc = Text(r, 11)
-        r.desc:SetPoint("RIGHT", -8, 0)
-        ns.Color(r.desc, T.muted)
-        r.div = r:CreateTexture(nil, "ARTWORK")
-        r.div:SetPoint("TOPLEFT")
-        r.div:SetPoint("TOPRIGHT")
-        r.div:SetHeight(1)
-        ns.Color(r.div, T.divider)
-        r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-        r.hl:SetAllPoints()
-        ns.Color(r.hl, T.hover)
-        menu.rows[i] = r
-        return r
-    end
-
-    -- opts.point/relPoint/x/y place it next to the anchor; opts.width
-    function UI.OpenMenu(anchor, items, opts)
-        opts = opts or {}
-        if menu:IsShown() and menu.anchor == anchor then Close() return end
-        local anyIcon = false
-        for _, it in ipairs(items) do if it.icon then anyIcon = true end end
-        for i, it in ipairs(items) do
-            local r = Row(i)
-            r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", PAD, -PAD - (i - 1) * ROW_H)
-            r:SetPoint("TOPRIGHT", -PAD, -PAD - (i - 1) * ROW_H)
-            r.text:ClearAllPoints()
-            r.text:SetPoint("LEFT", anyIcon and 28 or 10, 0)
-            if it.isTitle then
-                r.text:SetText(ns.Muted(it.label))
-                r:EnableMouse(false)
-                r:SetScript("OnClick", nil)
-                r:SetScript("OnEnter", nil)
-                r:SetScript("OnLeave", nil)
-            else
-                r.text:SetText(it.label)
-                r:EnableMouse(true)
-                r:SetScript("OnClick", function() Close() if it.fn then it.fn() end end)
-                if it.tooltip then UI.Tooltip(r, it.tooltip) else
-                    r:SetScript("OnEnter", nil)
-                    r:SetScript("OnLeave", nil)
-                end
-            end
-            r.icon:SetShown(it.icon ~= nil)
-            if it.icon then r.icon:SetTexture(it.icon) end
-            r.desc:SetText(it.desc or "")
-            r.sel:SetShown(it.checked and true or false)
-            r.mark:SetShown(it.checked and true or false)
-            r.div:SetShown(it.divider and true or false)
-            r:Show()
-        end
-        for i = #items + 1, #menu.rows do menu.rows[i]:Hide() end
-        menu:SetSize(opts.width or 190, PAD * 2 + #items * ROW_H)
-        menu:ClearAllPoints()
-        menu:SetPoint(opts.point or "TOPRIGHT", anchor, opts.relPoint or "BOTTOMRIGHT", opts.x or 0, opts.y or -4)
-        menu.anchor = anchor
-        catcher:Show()
-        menu:Show()
-    end
-end
 
 -- ---------------------------------------------------------------------------
 -- Segmented control: a row of buttons, the active one in the accent color.
@@ -475,17 +502,35 @@ end
 -- ---------------------------------------------------------------------------
 function UI.Segmented(parent, items, get, set, width)
     local seg = CreateFrame("Frame", nil, parent)
-    local w = (width - (#items - 1) * 4) / #items
     seg:SetSize(width, 22)
     seg.buttons = {}
+    -- button widths follow the measured label width, so a long label is not cut off:
+    -- every button gets its label plus padding, the rest of the row is shared out evenly
+    local room = width - (#items - 1) * 4
+    local need, sum = {}, 0
     for i, it in ipairs(items) do
-        local b = UI.Button(seg, w, it[2], function()
+        local b = UI.Button(seg, 10, it[2], function()
             set(it[1])
             seg:Refresh()
         end, 22)
-        b:SetPoint("TOPLEFT", (i - 1) * (w + 4), 0)
         b.value = it[1]
         seg.buttons[i] = b
+        local tw = b.text:GetStringWidth() or 0
+        if tw <= 0 then tw = #it[2] * 7 end   -- no font metrics yet
+        need[i] = tw + 16
+        sum = sum + need[i]
+    end
+    local x = 0
+    for i, b in ipairs(seg.buttons) do
+        local w
+        if sum <= room then
+            w = need[i] + (room - sum) / #items
+        else
+            w = room * need[i] / sum   -- too narrow anyway: shrink alike
+        end
+        b:SetWidth(w)
+        b:SetPoint("TOPLEFT", x, 0)
+        x = x + w + 4
     end
     function seg:Refresh()
         local cur = get()
@@ -507,7 +552,7 @@ function UI.Dropdown(parent, items, get, set, width)
         local list = {}
         local cur = get()
         for _, it in ipairs(Items()) do
-            list[#list + 1] = { label = it[2], desc = it[3], checked = it[1] == cur,
+            list[#list + 1] = { label = it[2], desc = it[3], checked = it[1] == cur, font = it.font,
                 fn = function() set(it[1]) dd:Refresh() end }
         end
         UI.OpenMenu(dd, list, { width = math.max(width, 190), point = "TOPLEFT", relPoint = "BOTTOMLEFT" })
@@ -547,228 +592,13 @@ function UI.ValueSlider(parent, label, minV, maxV, step, get, set, width, fmt)
         Show(v)
     end, width)
     box.slider:SetPoint("TOPLEFT", 0, -18)
+    function box:SetDisabled(d)
+        self.slider:SetDisabled(d)
+        self:SetAlpha(d and 0.4 or 1)
+    end
     function box:Refresh()
         self.slider:Refresh()
         Show(get())
     end
     return box
-end
-
--- ---------------------------------------------------------------------------
--- Color swatch: shows a color; a click opens a small popover with the theme's
--- palette, "Default" and (where the game has one) its full color picker.
--- get() -> color or nil (= default), set(color or nil); fallback = the default
--- ---------------------------------------------------------------------------
-do
-    local pop = CreateFrame("Frame", "EverFrameColorPopover", UIParent)
-    pop:SetFrameStrata("TOOLTIP")
-    pop:EnableMouse(true)
-    pop:Hide()
-    Skin(pop, T.popover)
-    local catcher = CreateFrame("Button", nil, UIParent)
-    catcher:SetAllPoints()
-    catcher:SetFrameStrata("DIALOG")
-    catcher:Hide()
-    local function Close() pop:Hide() catcher:Hide() end
-    catcher:SetScript("OnClick", Close)
-    UI.CloseColorPopover = Close
-
-    local EXTRA = { { 1, 1, 1 }, { 0.62, 0.65, 0.70 }, { 0.22, 0.80, 0.45 }, { 1.00, 0.80, 0.22 },
-                    { 0.25, 0.50, 1.00 }, { 0.92, 0.24, 0.30 } }
-    local SW, GAP, COLS = 20, 6, 8
-    pop.cells = {}
-    local current
-    local function Cell(i)
-        local c = pop.cells[i]
-        if c then return c end
-        c = CreateFrame("Button", nil, pop)
-        c:SetSize(SW, SW)
-        Skin(c, { 1, 1, 1, 1 }, T.line)
-        c.hl = c:CreateTexture(nil, "HIGHLIGHT")
-        c.hl:SetAllPoints()
-        c.hl:SetColorTexture(1, 1, 1, 0.25)
-        c:SetScript("OnClick", function(self)
-            current.set({ self.color[1], self.color[2], self.color[3] })
-            Close()
-        end)
-        pop.cells[i] = c
-        return c
-    end
-    pop.title = Text(pop, 11)
-    pop.title:SetPoint("TOPLEFT", 10, -8)
-    ns.Color(pop.title, T.muted)
-    pop.more = UI.Button(pop, 10, ns.L["More colors ..."], function()
-        local cur = current.get() or current.fallback
-        if type(cur) == "function" then cur = cur() end
-        local set = current.set
-        Close()
-        local before = { cur[1], cur[2], cur[3] }
-        local function Changed()
-            local r, g, b = ColorPickerFrame:GetColorRGB()
-            set({ r, g, b })
-        end
-        if ColorPickerFrame and ColorPickerFrame.SetupColorPickerAndShow then
-            ColorPickerFrame:SetupColorPickerAndShow({ r = cur[1], g = cur[2], b = cur[3], hasOpacity = false,
-                swatchFunc = Changed, cancelFunc = function() set(before) end })
-        elseif ColorPickerFrame then
-            ColorPickerFrame.hasOpacity = false
-            ColorPickerFrame.func = Changed
-            ColorPickerFrame.cancelFunc = function() set(before) end
-            ColorPickerFrame:SetColorRGB(cur[1], cur[2], cur[3])
-            ColorPickerFrame:Hide()
-            ColorPickerFrame:Show()
-        end
-    end, 20)
-    pop.default = UI.Button(pop, 10, ns.L["Default"], function()
-        current.set(nil)
-        Close()
-    end, 20)
-
-    local function Open(anchor, spec)
-        current = spec
-        pop.title:SetText(spec.title or ns.L["Color"])
-        local colors = {}
-        for i = 1, #T.tags do colors[#colors + 1] = T.tags[i] end
-        for _, c in ipairs(EXTRA) do colors[#colors + 1] = c end
-        for i, col in ipairs(colors) do
-            local c = Cell(i)
-            local row, column = math.floor((i - 1) / COLS), (i - 1) % COLS
-            c:ClearAllPoints()
-            c:SetPoint("TOPLEFT", 10 + column * (SW + GAP), -26 - row * (SW + GAP))
-            c.color = col
-            ns.SetFill(c, { col[1], col[2], col[3], 1 })
-            c:Show()
-        end
-        local rows = math.ceil(#colors / COLS)
-        local width = 20 + COLS * SW + (COLS - 1) * GAP
-        local y = -26 - rows * (SW + GAP) - 4
-        local hasPicker = ColorPickerFrame ~= nil
-        pop.default:ClearAllPoints()
-        pop.default:SetPoint("TOPLEFT", 10, y)
-        pop.default:SetWidth(hasPicker and 70 or (width - 20))
-        pop.more:SetShown(hasPicker)
-        pop.more:ClearAllPoints()
-        pop.more:SetPoint("TOPRIGHT", -10, y)
-        pop.more:SetWidth(width - 20 - 76)
-        pop:SetSize(width, -y + 30)
-        -- open towards the middle of the screen
-        pop:ClearAllPoints()
-        local x = anchor:GetCenter()
-        if x and x > UIParent:GetWidth() / 2 then
-            pop:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
-        else
-            pop:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
-        end
-        catcher:Show()
-        pop:Show()
-    end
-    UI.OpenColorPopover = Open
-
-    function UI.ColorSwatch(parent, title, get, set, fallback)
-        local b = CreateFrame("Button", nil, parent)
-        b.isSwatch = true
-        b:SetSize(46, 20)
-        Skin(b, { 1, 1, 1, 1 }, T.input)
-        b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-        b.hl:SetAllPoints()
-        b.hl:SetColorTexture(1, 1, 1, 0.15)
-        local spec = { title = title, get = get, fallback = fallback }
-        spec.set = function(c)
-            set(c)
-            b:Refresh()
-        end
-        b:SetScript("OnClick", function(self) Open(self, spec) end)
-        function b:Refresh()
-            local c = get() or (type(fallback) == "function" and fallback() or fallback)
-            ns.SetFill(self, { c[1], c[2], c[3], 1 })
-        end
-        b:Refresh()
-        return b
-    end
-end
-
--- ---------------------------------------------------------------------------
--- Message box. Deliberately not a Blizzard StaticPopup: the poison macros
--- click StaticPopup1 to confirm "replace enchantment?".
--- buttons = { { label, fn, primary }, ... } up to three, right-aligned
--- ---------------------------------------------------------------------------
-do
-    local box = CreateFrame("Frame", "EverFrameMessageBox", UIParent)
-    box:SetSize(400, 190)
-    box:SetPoint("CENTER", UIParent, "CENTER", 0, 180)
-    box:SetFrameStrata("FULLSCREEN_DIALOG")   -- above the app window (DIALOG)
-    box:EnableMouse(true)
-    box:SetMovable(true)
-    box:SetClampedToScreen(true)
-    box:RegisterForDrag("LeftButton")
-    box:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    box:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-    box:Hide()
-    Skin(box, T.popover)
-    local strip = box:CreateTexture(nil, "ARTWORK")
-    strip:SetPoint("TOPLEFT")
-    strip:SetPoint("TOPRIGHT")
-    strip:SetHeight(2)
-    ns.Color(strip, T.accent)
-    table.insert(UISpecialFrames, "EverFrameMessageBox")
-    box.title = Text(box, 14)
-    box.title:SetPoint("TOPLEFT", 16, -14)
-    ns.Color(box.title, T.accent)
-    box.text = Text(box, 12)
-    box.text:SetPoint("TOPLEFT", 16, -38)
-    box.text:SetPoint("BOTTOMRIGHT", -16, 44)
-    box.text:SetJustifyH("LEFT")
-    box.text:SetJustifyV("TOP")
-    box.buttons = {}
-    for i = 1, 3 do
-        local b = UI.Button(box, 118, "", function(self)
-            box:Hide()
-            if self.fn then self.fn() end
-        end, 22)
-        b:SetPoint("BOTTOMRIGHT", -16 - (3 - i) * 124, 14)
-        box.buttons[i] = b
-    end
-    -- optional text field (UI.Prompt)
-    box.input = UI.LineEdit(box, 13, 40)
-    box.input:SetPoint("BOTTOMLEFT", 16, 48)
-    box.input:SetPoint("BOTTOMRIGHT", -16, 48)
-    box.input:SetHeight(24)
-    box.input:Hide()
-    function UI.MessageBox(title, text, buttons)
-        UI.PlaceDialog(box)
-        box.input:Hide()
-        box.input:ClearFocus()
-        box.text:SetPoint("BOTTOMRIGHT", -16, 44)
-        box.title:SetText(title)
-        box.text:SetText(text)
-        for i, b in ipairs(box.buttons) do
-            local spec = buttons[#buttons - 3 + i]
-            if spec then
-                b.text:SetText(spec[1])
-                b.fn = spec[2]
-                b:SetAccent(spec[3])
-                b:Show()
-            else
-                b:Hide()
-            end
-        end
-        box:Show()
-    end
-    -- asks for one line of text; onOK(text) gets it trimmed (not called when empty)
-    function UI.Prompt(title, text, default, onOK, okLabel)
-        local function OK()
-            local v = ns.Trim(box.input:GetText())
-            box:Hide()
-            if v ~= "" then onOK(v) end
-        end
-        UI.MessageBox(title, text, { { ns.L["Cancel"] }, { okLabel or ns.L["OK"], OK, true } })
-        box.text:SetPoint("BOTTOMRIGHT", -16, 80)
-        box.input:SetText(default or "")
-        box.input:Show()
-        box.input:SetFocus()
-        box.input:HighlightText()
-        box.input:SetScript("OnEnterPressed", OK)
-        box.input:SetScript("OnEscapePressed", function() box:Hide() end)
-    end
-    UI.messageBox = box
 end

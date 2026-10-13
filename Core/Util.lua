@@ -10,6 +10,16 @@ local _, ns = ...
 -- auras, ranges in combat). They can be displayed, but never compared or
 -- calculated with -- not even "== nil". Always ask first.
 -- ---------------------------------------------------------------------------
+-- is the target plainly gone or dead? A secret or missing answer counts as alive
+-- (only used to keep sounds quiet, never to hide what the game shows)
+function ns.TargetGoneOrDead()
+    local ok, exists = pcall(UnitExists, "target")
+    if ok and not ns.IsSecret(exists) and not exists then return true end
+    if not UnitIsDead then return false end
+    local ok2, dead = pcall(UnitIsDead, "target")
+    return ok2 and not ns.IsSecret(dead) and dead == true
+end
+
 function ns.IsSecret(v)
     if type(issecretvalue) ~= "function" then return false end
     local ok, r = pcall(issecretvalue, v)
@@ -25,7 +35,7 @@ function ns.SpellName(id)
         local info = C_Spell.GetSpellInfo(id)
         return info and info.name or nil
     end
-    return GetSpellInfo and (GetSpellInfo(id)) or nil
+    return GetSpellInfo and (GetSpellInfo(id)) or nil   -- lint:ignore (guarded fallback for other client generations)
 end
 
 function ns.SpellIcon(id)
@@ -53,7 +63,7 @@ function ns.ItemName(id)
     if not id then return nil end
     local n
     if C_Item and C_Item.GetItemNameByID then n = C_Item.GetItemNameByID(id) end
-    if not n and GetItemInfo then n = GetItemInfo(id) end
+    if not n and GetItemInfo then n = GetItemInfo(id) end   -- lint:ignore (guarded fallback)
     if not n and C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(id) end
     return n
 end
@@ -198,8 +208,8 @@ end
 -- A buff or debuff on the player, without touching secret numbers:
 --   "exact", start, duration    plain numbers
 --   "object", durationObject    only secret; for SetCooldownFromDurationObject
---   "none"                      readable, and not on the player
---   nil                         the client doesn't let us look
+--   "none"                      readable, and not on the player (out of combat)
+--   nil                         the client doesn't let us look (or hides it)
 -- ---------------------------------------------------------------------------
 function ns.ReadPlayerAura(ids)
     if not (C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID) then return nil end
@@ -209,7 +219,12 @@ function ns.ReadPlayerAura(ids)
         if not ok or ns.IsSecret(a) then return nil end
         if a then aura = a break end
     end
-    if not aura then return "none" end
+    if not aura then
+        -- in combat the game hides the player's auras (nil, not secret), so
+        -- no answer proves nothing there
+        if ns.InCombat() or (UnitAffectingCombat and UnitAffectingCombat("player")) then return nil end
+        return "none"
+    end
     local ok, exp, dur = pcall(function() return aura.expirationTime, aura.duration end)
     if ok and type(exp) == "number" and type(dur) == "number" and not ns.IsSecret(exp) and not ns.IsSecret(dur)
             and exp > 0 and dur > 0 then
@@ -338,24 +353,22 @@ function ns.DecodeMacros(text)
     return list
 end
 
--- Notes the same way: "EFN1:" + Base64; one record per note with
--- kind ("g" = notebook group, "p" = player), its group name or Name-Realm,
--- group color or class, title, text, created and updated time
-local NOTES_PREFIX = "EFN1:"
-
-function ns.EncodeNotes(list)
-    local records = {}
-    for _, n in ipairs(list) do
-        records[#records + 1] = table.concat({ Clean(n.kind), Clean(n.owner), Clean(n.extra), Clean(n.title),
-            Clean(n.text), Clean(n.created), Clean(n.updated) }, FIELD)
+-- Any other list of records the same way (modules: e.g. the notes):
+-- prefix + Base64, each record a list of `width` fields (nil = empty).
+function ns.EncodeRecords(prefix, records, width)
+    local out = {}
+    for i, rec in ipairs(records) do
+        local f = {}
+        for j = 1, width do f[j] = Clean(rec[j]) end
+        out[i] = table.concat(f, FIELD)
     end
-    return NOTES_PREFIX .. ns.Base64Encode(table.concat(records, RECORD))
+    return prefix .. ns.Base64Encode(table.concat(out, RECORD))
 end
 
--- list of { kind, owner, extra, title, text, created, updated }, or nil + reason
-function ns.DecodeNotes(text)
+-- list of field lists (strings), or nil + reason ("prefix", "data")
+function ns.DecodeRecords(text, prefix, width)
     text = ns.Trim(text)
-    local rest = AfterPrefix(text, NOTES_PREFIX)
+    local rest = AfterPrefix(text, prefix)
     if not rest then return nil, "prefix" end
     local data = ns.Base64Decode(rest)
     if not data or data == "" then return nil, "data" end
@@ -363,9 +376,8 @@ function ns.DecodeNotes(text)
     for record in (data .. RECORD):gmatch("(.-)" .. RECORD) do
         local f = {}
         for field in (record .. FIELD):gmatch("(.-)" .. FIELD) do f[#f + 1] = field end
-        if #f ~= 7 or (f[1] ~= "g" and f[1] ~= "p") or ns.Trim(f[2]) == "" then return nil, "data" end
-        list[#list + 1] = { kind = f[1], owner = f[2], extra = f[3] ~= "" and f[3] or nil, title = f[4],
-                            text = f[5], created = tonumber(f[6]), updated = tonumber(f[7]) }
+        if #f ~= width then return nil, "data" end
+        list[#list + 1] = f
     end
     return list
 end

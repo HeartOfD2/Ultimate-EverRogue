@@ -1,5 +1,80 @@
 # Changelog
 
+## 1.0.0 (2026-10-13)
+
+First stable release for World of Warcraft: Forever. EverFrame is now a complete combat frame for every class with macro tools, notes and a set of extras, and it is no longer a beta. Install both folders, `EverFrame` and `EverFrame_IconData`, in `Interface\AddOns`.
+
+- **New defaults for 1.0** (for new and reset settings; what you saved stays): health bar 20 px high, `{cur} ({pct}%)` in green #37C971; energy bar #CDDD00; the global cooldown bar has a transparent background; combo point sound on ("GM chat warning"); threat sound on ("Raid warning", only in a party or raid); cursor ring in petrol; damage numbers (floating and scrolling text), fast camera zoom, hide chat and copy chat are on. All modules are on; the rogue module runs for rogues only.
+- **Defaults checked for 1.0:** the threat sound plays only in a party or raid (new choice "Only in group/raid" in the list, which now sits right of "Sound at"), and the range display checks 5 times per second. Saved settings are not changed. The Reset page has a new entry, **Appearance** (dark or light mode, accent color, font), and "Select all" now brings every setting back to its default.
+
+- New module **Miscellaneous** (every class, on by default; the camera zoom, hide chat and copy chat are on, each with its own switch) with a page under Extras and one tab per feature:
+  - **Camera**: fast zoom. Turning the mouse wheel quickly covers far more distance, turning it slowly stays fine-grained. Base step, acceleration, zoom speed and a soft or direct curve; off restores the game's zoom.
+  - **Hide chat**: a button shows and hides all chat windows with their tabs, input box and chat buttons; the state survives a reload. Pressing Enter or opening Edit Mode brings the chat back. Lock/unlock and drag the button, snap it into a corner, size, opacity, color, reset.
+  - **Copy chat**: see below.
+
+- **GCD bar**: a thin bar at the top of the frame that lights up while the global cooldown runs and drains with it. Height, color and a see-through background under HUD › Layout; untick it in the part list to hide it.
+
+- **Cooldown bars**: each entry follows the **highest rank you have learned** and transformed spells (overrides), keeping its place and settings; optional **tint** by range (red), missing resource (blue) or not usable (grey), off by default; a **use count** on the icon where the game has one; potions show the shared potion cooldown; spells with **charges** show the number of charges.
+
+- **Five-second rule**: while your resource is mana, a thin line below the mana bar runs down for 5 seconds after each spell that costs mana; its height is added to the bar. Switch, height and color under HUD › Layout › Resource (only shown for characters with mana).
+
+- **Threat sound**: choose where it plays: always, only in a party, only in a raid, or only in a dungeon or raid instance. Threat and combo point sounds stay quiet when the target is dead.
+
+- Damage numbers: a **font preview** beside each font list, and hovering a font in any font list shows a sample in that font. A **Reset to default** button turns both blocks back off.
+
+- Layout settings: long German labels on the button rows and long descriptions under a heading no longer get cut off or cover the first setting.
+
+- New module **Damage numbers** (every class, on by default, both blocks on): font, size, gravity and duration of the floating combat numbers, and a font for the scrolling combat text. A new font for the numbers shows after logging out and in.
+
+- New fonts for the damage numbers: **Bangers**, **Bebas Neue**, **Chomsky** and **Help Me** (SIL Open Font License).
+
+- New text fonts, also for EverFrame itself under Addon › Appearance: **Barlow Bold**, **Fira Sans**, **Inter** and **Source Code Pro** (each Regular, SemiBold and Bold; SIL Open Font License; with Cyrillic letters). **Fira Sans SemiBold is the new default** for EverFrame itself and for both damage number blocks. The font list under Addon › Appearance keeps the three text fonts with full German letters (Barlow Regular, Barlow SemiBold, Arial Narrow).
+
+- Class packs: removed spell IDs the game does not know (no name): Wyvern Sting, Elemental Mastery, Fire Nova Totem and higher ranks of Tiger's Fury, Frenzied Regeneration, Multi-Shot and Deadly Poison. Add them as your own cooldown entry if you need them.
+
+- Cursor ring: **Show** is "Off" by default; pick "Always" or "In combat" under HUD › Cursor.
+
+- **Cooldown bars**: icons turn **grey while on cooldown** (on by default) and can carry an **accent outline while ready** (off by default); both under HUD › Layout › Cooldown bar. The game tells how much is left, also in combat; EverFrame only passes it on.
+
+- **Copy chat** (Miscellaneous › Copy chat): a small icon on every chat window (any of the four corners, always or only on mouse over) opens its text in a window you can search, select and copy with Ctrl+C, in your font and size, with optional timestamps and the channel colors; player names keep their class color. Lines the game protects are skipped and counted.
+
+- **Sound picker**: wherever EverFrame plays a sound (combo points full, threat at the limit) you now pick from **every sound of the game**: a list with search, groups by name and an arrow to listen, plus a **volume** (0–100 % of the master volume) for each sound. Sound names are shown readable ("Raid warning"). The combo point sound got its own volume; new defaults: combo points "GM chat warning", threat "Raid warning". Your earlier choice is kept.
+
+- The data addon `EverFrame_IconData` shows the EverFrame icon in the addon list (no red question mark).
+
+- **Menu rebuilt** by task: HUD (Position & visibility, Layout, Cooldowns, Cursor), Macros (Macro manager, Templates, Placeholders, Rogue macros), **Extras** (Notes, Damage numbers, Miscellaneous) and Addon (Modules, **Appearance**, Reset, About). Colors, font and the minimap button moved to the new Appearance page; the range check rate sits with the range display in Layout; the notes' "in combat" switches sit in the Players and Sticky notes tabs. The sidebar is more compact and scrolls when there are many pages, and the Reset page is grouped like the sidebar and scrolls too. Nothing you saved changes.
+
+- **Cooldown bars**: you choose how many (0–20, one by default) under HUD › Layout: **+ Cooldown bar** adds one, the **×** at the end of a bar's row removes it (click twice). Bars are numbered, taking one away moves its cooldowns to the neighbour; the part list scrolls. On the Cooldowns page a button picks the bar of each cooldown.
+
+- Threat bar: new option **Show**: always, or only in a group or raid (HUD › Layout › Threat bar).
+
+- Threat bar: optional **sound** when your threat reaches a limit (10–100 %); pick the sound and the volume. It plays only while the game shows the threat percentage.
+
+- Icon filter: categories of one group add up (sword or dagger), different groups narrow down (Abilities + Rogue = the rogue abilities).
+
+- The version now shows at the bottom of the window ("Version 1.0.0").
+
+- New HUD part **Threat bar** (every class): your threat on the current target. Shows the threat percentage when the game gives it (also while it hides the number), otherwise the threat state 0–3; colored by threat level, or class/own color. Layout: move, hide, height, edge, text.
+
+- New module **Cursor** (for every class, on by default): a ring around the mouse pointer. Settings under HUD › Cursor: show off / always / in combat, hide in game menus, ring color, size 16–48 px. The ring pictures are used under the MIT license; the text is in `Media/Cursor/LICENSE.txt`.
+
+- Macro icon picker: a Filter button narrows the icons by category (weapons, armor, classes, professions, magic ...), and the search also finds icon names and file IDs. The icon data is a second addon folder, `EverFrame_IconData`, that loads only when the picker opens; keep both folders in `Interface\AddOns`.
+
+- Notes are a module now ("Notes" on the Modules page, on for every class): switched off, the notes page, sticky notes, the target popup, the Shift-click on the minimap button and the "Notes in combat" block go away; your notes stay saved and come back unchanged when you switch it on again. The switch is per character, the notes stay account-wide. Resetting "All notes" now keeps the "Notes in combat" switches.
+
+- New **Macro assistant**: the Assistant button under the macro list builds a macro from spells or items (suggestions from your spellbook and bags while you type), a target (mouseover, focus, cursor, self, heal/harm ...), conditions (Shift/Ctrl/Alt, in combat, stealth, raid, channeling) and extras (`#showtooltip`, `/stopcasting`, `/cancelaura`, `/startattack`, `/petattack`, `/focus`). Several entries become one line each. A live preview counts the characters; save it as a new macro (not in combat) or as a template.
+
+- New font: EverFrame now uses **Barlow Regular**; Barlow SemiBold and the old Arial Narrow can be picked under Addon › Appearance › Font. After a change EverFrame offers to reload the interface. Korean, Chinese and Russian letters keep the game's fonts.
+
+- Reset › Modules switches the modules back on at once (no reload needed).
+
+## 0.10.1 (Beta)
+
+- One note editor everywhere: the notebook, the player popup and sticky notes all show checkboxes and lists, and a click on a box ticks it.
+- Numbered lists: `1. text` (the numbers run on by themselves).
+- Enter at the end of a list line starts the next one; Enter on an empty list line ends the list.
+- The buttons under each note turn the current line into a checkbox, bullet or numbered item.
+
 ## 0.10.0 (Beta)
 
 **Ultimate EverRogue is now EverFrame – Compact Combat Frame with Extras.** The addon works for every class; the rogue features stay as a module.

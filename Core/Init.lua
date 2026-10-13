@@ -1,6 +1,7 @@
 -- ---------------------------------------------------------------------------
--- EverFrame: namespace, event dispatch, internal messages and the
--- module registry. Every other file builds on what this one sets up.
+-- EverFrame: namespace, event dispatch, internal messages, chat output and
+-- the login lifecycle. Every other file builds on what this one sets up.
+-- (Modules: Core/Module.lua.)
 -- ---------------------------------------------------------------------------
 local ADDON, ns = ...
 
@@ -11,8 +12,8 @@ ns.LOCALE = GetLocale and GetLocale() or "enUS"
 do
     local getMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
     local v = getMeta and getMeta(ADDON, "Version")
-    -- the packager fills in the real version; a checkout shows "dev"
-    ns.VERSION = (type(v) == "string" and v ~= "" and not v:find("^@")) and v or "dev"
+    -- the TOC carries the version (make_release.py --version sets it for a release)
+    ns.VERSION = (type(v) == "string" and v ~= "" and not v:find("^@")) and v or "?"
 end
 
 -- Localization: English text is the key. Missing translations fall back to it.
@@ -101,68 +102,6 @@ local function ReadPlayer()
     end
 end
 ReadPlayer()
-
--- ---------------------------------------------------------------------------
--- Modules: optional feature packs. A module may be limited to classes; it
--- is active when the class fits and the player hasn't switched it off.
--- ---------------------------------------------------------------------------
-ns.modules, ns.moduleOrder = {}, {}
-
-local Module = {}
-Module.__index = Module
-
-function Module:IsClassAllowed()
-    if not self.classes then return true end
-    return self.classes[ns.playerClass or ""] and true or false
-end
-
--- per-character module settings live in the character DB
-function Module:Settings()
-    local all = ns.Char().modules
-    all[self.key] = all[self.key] or {}
-    return all[self.key]
-end
-
-function Module:IsEnabledSetting()
-    if not ns.Char then return self.defaultEnabled ~= false end
-    local s = ns.Char().modules[self.key]
-    if s and s.enabled ~= nil then return s.enabled end
-    return self.defaultEnabled ~= false
-end
-
-function Module:IsActive()
-    return ns.ready and self:IsClassAllowed() and self:IsEnabledSetting() or false
-end
-
-function Module:SetEnabled(on)
-    self:Settings().enabled = on and true or false
-    ns.RefreshModules()
-end
-
-function ns.NewModule(key, def)
-    local m = setmetatable(def or {}, Module)
-    m.key = key
-    ns.modules[key] = m
-    ns.moduleOrder[#ns.moduleOrder + 1] = key
-    return m
-end
-
--- (re)evaluate which modules run; called at login and after toggles/resets
-function ns.RefreshModules()
-    for _, key in ipairs(ns.moduleOrder) do
-        local m = ns.modules[key]
-        local active = m:IsActive()
-        if active and not m.started then
-            m.started = true
-            if m.OnEnable then SafeCall(m.OnEnable, m) end
-        end
-        if active ~= m.wasActive then
-            m.wasActive = active
-            if m.OnActiveChanged then SafeCall(m.OnActiveChanged, m, active) end
-        end
-    end
-    ns.Fire("MODULES_CHANGED")
-end
 
 -- ---------------------------------------------------------------------------
 -- Lifecycle

@@ -291,7 +291,7 @@ function HUD:ApplyLayout()
                 local h = self:Height(def)
                 def.region:SetHeight(h)
                 def.region:Show()
-                used = h
+                used = h + (def.ExtraHeight and def:ExtraHeight() or 0)   -- space below the region (part's own add-on)
             end
         end
         if used and used > 0 then

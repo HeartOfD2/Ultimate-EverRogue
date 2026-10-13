@@ -12,29 +12,38 @@ local _, ns = ...
 local L = ns.L
 local CD, Rogue = ns.Cooldowns, ns.Rogue
 
-local SND_IDS = { 5171, 6774 }
+local SND_IDS = { 5171, 6774 }   -- Slice and Dice rank 1, 2
 local IS_SND = { [5171] = true, [6774] = true }
 local IMPROVED_SND = 14165            -- one spell for every rank on this client
 local IMPROVED_SND_NODE = 105739      -- its talent node (found in game)
 local PER_RANK = 0.15
 
-local snd = CD:RegisterSpecial({
+local snd = Rogue:Special({
     key = "snd", ids = SND_IDS, noCasts = true,
-    IsAvailable = function() return Rogue:IsActive() and ns.KnowsAny(SND_IDS) end,
-    IsRelevant = function() return Rogue:IsClassAllowed() end,
+    IsAvailable = function() return ns.KnowsAny(SND_IDS) end,
+    -- ready to cast: the buff is off and there is a combo point to spend
+    IsReady = function(self) return not self.frame.running and ns.combo.cp > 0 end,
 })
 Rogue.snd = snd
 snd.mode = L["not used yet"]
 
 -- ---------------------------------------------------------------------------
--- Display
+-- Display: bright while the buff runs or while it can be cast, dim otherwise
 -- ---------------------------------------------------------------------------
+local function Brighten()
+    local o = snd.frame
+    o:SetAlpha((o.running or snd:IsReady()) and 1 or 0.35)
+    CD:ShowLook(snd)   -- the ready outline (style "readyGlow")
+end
+
 local function SetRunning(on)
     local o = snd.frame
-    o:SetAlpha(on and 1 or 0.35)
-    CD.SetActive(o, on)
     o.running = on
+    CD.SetActive(o, on)
+    Brighten()
 end
+
+Rogue:On("COMBO_POINTS", Brighten)
 
 local function Stop()
     SetRunning(false)
@@ -54,6 +63,7 @@ local function ReadAura()
     local kind, a, b = ns.ReadPlayerAura(SND_IDS)
     if not kind then return false end
     if kind == "none" then
+        -- (an estimate keeps running: the buff may still be on its way)
         if snd.frame.running and snd.mode ~= L["estimate"] then Stop() end
         return true
     end
@@ -129,7 +139,7 @@ local function ImprovedRank()
     -- classic talent tabs
     if GetNumTalentTabs and GetTalentInfo then
         local sndIcon = ns.SpellIcon(5171)
-        for tab = 1, GetNumTalentTabs() or 0 do
+        for tab = 1, GetNumTalentTabs() or 0 do   -- lint:ignore (guarded classic fallback)
             for i = 1, (GetNumTalents and GetNumTalents(tab)) or 0 do
                 local ok, _, icon, _, _, rank = pcall(GetTalentInfo, tab, i)
                 if ok and icon and sndIcon and icon == sndIcon then return rank or 0 end
@@ -169,16 +179,22 @@ local function OnCast()
     end)
 end
 
-ns.On("PLAYER_CAST", function(spellID)
-    if IS_SND[spellID] and Rogue:IsActive() then OnCast() end
+Rogue:On("PLAYER_CAST", function(spellID)
+    if IS_SND[spellID] then OnCast() end
 end)
 
-ns.RegisterUnitEvent("UNIT_AURA", "player", function()
-    if Rogue:IsActive() and snd.mode ~= L["estimate"] then ReadAura() end
+-- the buff often arrives after the cast (server round trip), when the
+-- estimate has already started: a readable buff always replaces it
+Rogue:UnitEvent("UNIT_AURA", "player", function() ReadAura() end)
+
+-- in combat the buff is hidden: right after it, the exact time
+-- replaces the estimate of a cast in combat
+Rogue:Event("PLAYER_REGEN_ENABLED", function()
+    C_Timer.After(0.2, function() if snd.frame.running then ReadAura() end end)
 end)
 
 for _, ev in ipairs({ "TRAIT_CONFIG_UPDATED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "SPELLS_CHANGED" }) do
-    ns.RegisterEvent(ev, function() if Rogue:IsActive() then UpdateRank() end end)
+    Rogue:Event(ev, UpdateRank)
 end
 
 ns.On("LOGIN", function()
@@ -189,8 +205,7 @@ ns.On("LOGIN", function()
     end
 end)
 
-ns.AddStatus(function()
-    if not Rogue:IsActive() then return end
+Rogue:Status(function()
     local line = L["Slice and Dice: %s"]:format(snd.mode)
     if knownRank then line = line .. "  ·  " .. L["Improved Slice and Dice: %d/3"]:format(knownRank) end
     return line

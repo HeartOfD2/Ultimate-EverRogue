@@ -152,7 +152,6 @@ end
 Rogue.WeaponMacroPlan = Plan
 
 local RefreshPage
-local Placeholders = ns.Placeholders
 
 local function Report(summary, isAlert, lines)
     App.Status(summary, isAlert)
@@ -410,9 +409,8 @@ local function BuildPage(p)
     dualHint:SetPoint("TOPLEFT", createBtn, "BOTTOMLEFT", 0, -12)
 end
 
-App:AddPage({
-    key = "weaponMacros", section = "macros", label = L["Rogue"], order = 120,
-    IsVisible = function() return Rogue:IsActive() end,
+Rogue:Page({
+    key = "weaponMacros", section = "macros", label = L["Rogue macros"], order = 140,
     Build = function(_, frame) BuildPage(frame) end,
     Refresh = function() if RefreshPage then RefreshPage() end end,
 })
@@ -421,9 +419,8 @@ local function ShowPlan() App:Open("weaponMacros") end
 Rogue.ShowWeaponMacros = ShowPlan
 
 -- buttons in the macro manager header
-Macros.RegisterAction({
-    label = L["Rogue"], width = 130, accent = true,
-    IsActive = function() return Rogue:IsActive() end,
+Rogue:MacroAction({
+    label = L["Rogue macros"], width = 130, accent = true,
     OnClick = function(_, button)
         if button == "RightButton" then Update() else ShowPlan() end
     end,
@@ -452,8 +449,7 @@ local function WeaponOutdated()
     end
     return names, only
 end
-Placeholders.RegisterGearMacros({
-    IsActive = function() return Rogue:IsActive() end,
+Rogue:GearMacros({
     Outdated = function() return (WeaponOutdated()) end,
     Update = function()
         local _, only = WeaponOutdated()
@@ -461,10 +457,10 @@ Placeholders.RegisterGearMacros({
         return Update(only, true)
     end,
 })
-Placeholders.RegisterUpdater(function() if Rogue:IsActive() then Update() end end)
+Rogue:Updater(function() Update() end)
 
 ns.RegisterEvent("UPDATE_MACROS", function() if App:IsOpen("weaponMacros") and RefreshPage then RefreshPage() end end)
 ns.RegisterEvent("BAG_UPDATE", function() if App:IsOpen("weaponMacros") and RefreshPage then RefreshPage() end end)
 ns.RegisterEvent("PLAYER_EQUIPMENT_CHANGED", function() if App:IsOpen("weaponMacros") and RefreshPage then RefreshPage() end end)
 
-ns.AddCommand({ "defaults" }, function() CreateMissing() end, L["rogue: create the missing weapon macros"])
+Rogue:Command({ "defaults" }, function() CreateMissing() end, L["rogue: create the missing weapon macros"])

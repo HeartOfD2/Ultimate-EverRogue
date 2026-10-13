@@ -1,9 +1,9 @@
 ## Interface: 16001
 ## Title: EverFrame
-## Notes: Combat frame for health, resource, combo points, range and cooldowns, plus macro manager, player notes and a rogue module.
-## Notes-deDE: Kampfanzeige für Leben, Ressource, Combo-Punkte, Reichweite und Cooldowns, dazu Makro-Manager, Spielernotizen und ein Schurken-Modul.
+## Notes: Combat frame for health, resource, combo points, range, threat, cooldowns and the global cooldown, plus macro manager with assistant, notes, a cursor ring, damage numbers, camera zoom, chat tools and a rogue module.
+## Notes-deDE: Kampfanzeige für Leben, Ressource, Combo-Punkte, Reichweite, Bedrohung, Cooldowns und den globalen Cooldown, dazu Makro-Manager mit Assistent, Notizen, Cursor-Ring, Schadenszahlen, Kamera-Zoom, Chat-Werkzeuge und ein Schurken-Modul.
 ## Author: HeartOfD2
-## Version: @project-version@
+## Version: 1.0.0
 ## X-License: MIT
 ## X-Curse-Project-ID: 1729015
 ## X-Website: https://github.com/HeartOfD2/EverFrame
@@ -14,29 +14,97 @@
 ## SavedVariablesPerCharacter: EverFrameCharDB
 
 Core\Init.lua
+Core\Module.lua
 Locales\deDE.lua
 Core\Util.lua
 Core\Database.lua
+Core\Sound.lua
+Core\FontCatalog.lua
 Core\Theme.lua
 Core\Widgets.lua
+Core\WidgetMenu.lua
+Core\WidgetColor.lua
+Core\WidgetDialog.lua
+Core\WidgetSound.lua
 Core\HUD.lua
-Classes\ClassData.lua
+Classes\Registry.lua
+Classes\Shared\Lockouts.lua
+Classes\Shared\Racials.lua
+Classes\Druid.lua
+Classes\Hunter.lua
+Classes\Mage.lua
+Classes\Paladin.lua
+Classes\Priest.lua
+Classes\Rogue.lua
+Classes\Shaman.lua
+Classes\Warlock.lua
+Classes\Warrior.lua
 Core\Elements\Bars.lua
 Core\Elements\ComboPoints.lua
 Core\Elements\Range.lua
+Core\Elements\Threat.lua
 Core\Elements\Cooldowns.lua
+Core\Elements\CooldownLayout.lua
+Core\Elements\CooldownSwipes.lua
+Core\Elements\CooldownSpellbook.lua
+Core\Elements\CooldownCustom.lua
+Core\Elements\CooldownRanks.lua
+Core\Elements\CooldownUsable.lua
+Core\Elements\CooldownEvents.lua
 Core\App.lua
 Core\Tools\Transfer.lua
 Core\Tools\SpellSearch.lua
 Core\Tools\Macros.lua
+Core\Tools\MacroBuilder.lua
+Core\Tools\MacroManager.lua
+Core\Tools\IconFilter.lua
+Core\Tools\IconFilterMenu.lua
+Core\Tools\MacroIcons.lua
+Core\Tools\MacroTransfer.lua
+Core\Tools\MacroActions.lua
+Core\Tools\MacroAssistant.lua
 Core\Tools\Placeholders.lua
+Core\Tools\PlaceholderGear.lua
+Core\Tools\PlaceholderPage.lua
 Core\Tools\Templates.lua
-Core\Tools\Notes.lua
-Core\Tools\Stickies.lua
 Core\Tools\Minimap.lua
 Core\Commands.lua
-Core\Pages\Settings.lua
+Core\Pages\PageGeneral.lua
+Core\Pages\PageLayout.lua
+Core\Pages\PageCooldowns.lua
+Core\Pages\PageAppearance.lua
+Core\Pages\PageAddon.lua
+Modules\Notes\Locales\deDE.lua
+Modules\Notes\Notes.lua
+Modules\Notes\NoteEditor.lua
+Modules\Notes\NotesPopup.lua
+Modules\Notes\NotesView.lua
+Modules\Notes\NotesPage.lua
+Modules\Notes\NotesTransfer.lua
+Modules\Notes\Stickies.lua
+Modules\Notes\StickyDock.lua
+Modules\Notes\StickySettings.lua
+Modules\Notes\Options.lua
+Modules\Rogue\Locales\deDE.lua
 Modules\Rogue\Rogue.lua
+Modules\Rogue\Options.lua
+Modules\Rogue\Templates.lua
 Modules\Rogue\Poisons.lua
 Modules\Rogue\SliceAndDice.lua
 Modules\Rogue\WeaponMacros.lua
+Modules\Cursor\Locales\deDE.lua
+Modules\Cursor\Cursor.lua
+Modules\Cursor\Ring.lua
+Modules\Cursor\Page.lua
+Modules\DamageText\Locales\deDE.lua
+Modules\DamageText\DamageText.lua
+Modules\DamageText\Page.lua
+Modules\Misc\Locales\deDE.lua
+Modules\Misc\Misc.lua
+Modules\Misc\Page.lua
+Modules\Misc\Camera.lua
+Modules\Misc\CameraTab.lua
+Modules\Misc\ChatHide.lua
+Modules\Misc\ChatHideTab.lua
+Modules\Misc\ChatCopy.lua
+Modules\Misc\ChatCopyTab.lua

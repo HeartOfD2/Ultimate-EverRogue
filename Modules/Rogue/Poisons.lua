@@ -113,17 +113,11 @@ end
 -- ---------------------------------------------------------------------------
 -- Element
 -- ---------------------------------------------------------------------------
-local el = HUD:Register({
+local el = Rogue:Element({
     key = "poisons", order = 50, label = L["Poison tracker"], secure = true,
+    fixedLook = L["The poison tiles have a fixed look. Show, hide and move them in the list."],
 })
 Rogue.poisonElement = el
-
-function el:IsRelevant() return Rogue:IsClassAllowed() end
-
-function el:IsAvailable()
-    if Rogue:IsActive() then return true end
-    return false, Rogue:IsClassAllowed() and L["rogue module is off"] or L["only for rogues"]
-end
 
 local function MakeTile(hand)
     local c = CreateFrame("Frame", nil, HUD.frame)
@@ -351,14 +345,13 @@ OpenChoice = function(anchor, hand)
     UI.OpenMenu(anchor, items, { point = "TOPLEFT", relPoint = "BOTTOMRIGHT", x = 2, y = -4, width = 320 })
 end
 
-ns.On("ROGUE_POISON_CHOICE", function() el:UpdateButtons() end)
+Rogue:On("ROGUE_POISON_CHOICE", function() el:UpdateButtons() end)
 for _, ev in ipairs({ "BAG_UPDATE", "PLAYER_EQUIPMENT_CHANGED", "GET_ITEM_INFO_RECEIVED" }) do
-    ns.RegisterEvent(ev, function() if el.shown then el:Update() end end)
+    Rogue:Event(ev, function() if el.shown then el:Update() end end)
 end
-ns.RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player", function() if el.shown then el:Update() end end)
-ns.RegisterEvent("PLAYER_REGEN_ENABLED", function() if el.shown then el:UpdateButtons() end end)
+Rogue:UnitEvent("UNIT_INVENTORY_CHANGED", "player", function() if el.shown then el:Update() end end)
+Rogue:Event("PLAYER_REGEN_ENABLED", function() if el.shown then el:UpdateButtons() end end)
 
-ns.AddStatus(function()
-    if not Rogue:IsActive() then return end
+Rogue:Status(function()
     return L["Poisons read from: %s"]:format(Rogue.readMode or "—")
 end)

@@ -8,10 +8,10 @@
 -- Modules bring default templates (ns.Macros.RegisterTemplates); they are
 -- added once and then belong to the player like any other.
 -- Placeholders: {s:<spell ID>} becomes the spell name in the client language;
--- modules add their own (the rogue's {p:MH} / {p:OH} = poison of that hand).
+-- modules add their own (e.g. the rogue's {p:MH} / {p:OH} = poison of that hand).
 -- ---------------------------------------------------------------------------
 local _, ns = ...
-local L, T, HEX = ns.L, ns.T, ns.HEX
+local L, HEX = ns.L, ns.HEX
 local UI, App, Macros, Placeholders = ns.UI, ns.App, ns.Macros, ns.Placeholders
 
 local Templates = {}
@@ -257,8 +257,9 @@ local function BuildPage(p)
     editor.body = UI.TextArea(p, Macros.BODY_MAX)
     editor.body:SetPoint("TOPLEFT", X, -134)
     editor.body:SetPoint("BOTTOMRIGHT", 0, 74)
-    local hint = UI.Hint(p, L["{s:ID} spell ({s:ID:r} with rank) · {w:W1} {w:W2} weapons · {g:t1} {g:t2} trinkets · {c:name} your own · Rogue: {p:MH} {p:OH} poison"], W - 118)
+    local hint = UI.Hint(p, "", W - 118)
     hint:SetPoint("TOPLEFT", editor.body, "BOTTOMLEFT", 0, -6)
+    editor.hint = hint
     -- right under the text it fills
     local spellBtn = ns.SpellSearch.Button(p, editor.body.edit, function() Count() end, 110, 22)
     spellBtn:SetPoint("TOPRIGHT", editor.body, "BOTTOMRIGHT", 0, -6)
@@ -331,6 +332,17 @@ function Templates.SaveEditor()
     Status(L["Saved \"%s\"."]:format(name))
 end
 
+-- adds a template from outside (the macro assistant); returns it, or nil + reason
+function Templates.Add(name, desc, body)
+    name = Macros.ShortName(ns.Trim(name))
+    if name == "" then return nil, L["Enter a name first."] end
+    if Templates.Find(name) then return nil, L["A template named \"%s\" exists already."]:format(name) end
+    local t = { name = name, desc = ns.Trim(desc), body = body or "" }
+    table.insert(Store().list, t)
+    if page and RenderMain then RenderMain() end
+    return t
+end
+
 function Templates.MakeMacro(perChar)
     if not current then return end
     local idx, why = Macros.Create(current.name, Templates.Fill(current.body), perChar)
@@ -400,15 +412,26 @@ function Templates.New(prefill)
 end
 function Templates.ShowImport() transfer.ShowImport() end
 
+-- the placeholder line under the editor: the core ones plus what each running module adds
+function Templates.UpdateHint()
+    if not (editor and editor.hint) then return end
+    local parts = { L["{s:ID} spell ({s:ID:r} with rank) · {w:W1} {w:W2} weapons · {g:t1} {g:t2} trinkets · {c:name} your own"] }
+    for _, group in ipairs(Macros.templates) do
+        if group.hint and (not group.IsActive or group.IsActive()) then parts[#parts + 1] = group.hint end
+    end
+    editor.hint:SetText(table.concat(parts, " · "))
+end
+
 -- ---------------------------------------------------------------------------
 App:AddPage({
-    key = "templates", section = "macros", label = L["Templates"], order = 115,
+    key = "templates", section = "macros", label = L["Templates"], order = 120,
     Build = function(_, frame) BuildPage(frame) end,
     Refresh = function()
         Templates.Seed()
-        local list = Store().list
-        if not (current and ns.IndexOf(list, current)) then current = nil end
-        Templates.Edit(current or list[1])
+        Templates.UpdateHint()
+        local entries = Store().list
+        if not (current and ns.IndexOf(entries, current)) then current = nil end
+        Templates.Edit(current or entries[1])
     end,
     OnHide = function()
         if transfer then transfer.Hide() end
@@ -419,7 +442,7 @@ App:AddPage({
 ns.On("LOGIN", function() Templates.Seed() end)
 ns.On("MODULES_CHANGED", function() if ns.ready then Templates.Seed() end end)
 
-ns.RegisterReset({ key = "templates", order = 88, label = L["Templates"], accountWide = true,
+ns.RegisterReset({ key = "templates", group = "macros", order = 88, label = L["Templates"], accountWide = true,
     desc = L["Deletes your templates and adds the default ones again."],
     reset = function()
         ns.Acct().templates = nil

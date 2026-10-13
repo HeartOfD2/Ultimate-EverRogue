@@ -6,7 +6,7 @@
 --   ns.SpellSearch.Attach(button, editBox, onInsert)
 -- ---------------------------------------------------------------------------
 local _, ns = ...
-local L, T, HEX = ns.L, ns.T, ns.HEX
+local L, T = ns.L, ns.T
 local UI = ns.UI
 
 local SpellSearch = {}
@@ -150,6 +150,12 @@ function SpellSearch.Open(edit, insertFn)
     Filter()
     search:SetFocus()
     search:HighlightText()
+end
+
+-- the learned spells, read anew: { { id, name, rank, icon, key }, ... } sorted by name, then rank
+function SpellSearch.List()
+    Read()
+    return spells
 end
 
 function SpellSearch.Hide() win:Hide() end

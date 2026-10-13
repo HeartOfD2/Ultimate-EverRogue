@@ -1,7 +1,8 @@
 -- ---------------------------------------------------------------------------
 -- Minimap button with the addon logo. Left-click opens the app window,
--- Shift- or middle-click the notes, right-click the macros. Drag it around
--- the minimap edge; position and visibility are saved account-wide.
+-- right-click the macros; Shift- or middle-click belongs to a module (the
+-- notes), without one it acts like a left-click. Drag it around the minimap
+-- edge; position and visibility are saved account-wide.
 -- ---------------------------------------------------------------------------
 local _, ns = ...
 local L = ns.L
@@ -64,14 +65,34 @@ end)
 btn:SetScript("OnMouseDown", function() icon:SetPoint("TOPLEFT", 7, -6) end)
 btn:SetScript("OnMouseUp", function() icon:SetPoint("TOPLEFT", 6, -5) end)
 
+-- Shift- / middle-click: def = { OnClick(), tooltip, hint, IsActive() }
+-- (modules use M:MinimapClick); the first active one wins
+local shiftClicks = {}
+function ns.AddMinimapShiftClick(def) shiftClicks[#shiftClicks + 1] = def end
+local function ShiftClick()
+    for _, def in ipairs(shiftClicks) do
+        if not def.IsActive or def.IsActive() then return def end
+    end
+end
+
 function ns.MinimapClick(button)
+    local shift = (button == "MiddleButton" or IsShiftKeyDown()) and ShiftClick()
     if button == "RightButton" then
         ns.App:Toggle("macros")
-    elseif button == "MiddleButton" or IsShiftKeyDown() then
-        ns.App:Toggle("notes")
+    elseif shift then
+        shift.OnClick()
     else
         ns.App:Toggle()
     end
+end
+
+-- one line for the settings page: what each click does
+function ns.MinimapHint()
+    local parts = { L["Left-click: settings"] }
+    local shift = ShiftClick()
+    if shift and shift.hint then parts[#parts + 1] = shift.hint end
+    parts[#parts + 1] = L["Right-click: macros"]
+    return table.concat(parts, "  ·  ")
 end
 
 btn:SetScript("OnClick", function(_, button) ns.MinimapClick(button) end)
@@ -79,7 +100,8 @@ btn:SetScript("OnClick", function(_, button) ns.MinimapClick(button) end)
 local function TooltipLines(tt)
     tt:AddLine("|cff" .. ns.HEX.accent .. ns.TITLE .. "|r")
     tt:AddLine(L["Left-click: settings and tools"], 0.8, 0.8, 0.8)
-    tt:AddLine(L["Shift- or middle-click: notes"], 0.8, 0.8, 0.8)
+    local shift = ShiftClick()
+    if shift and shift.tooltip then tt:AddLine(shift.tooltip, 0.8, 0.8, 0.8) end
     tt:AddLine(L["Right-click: macros"], 0.8, 0.8, 0.8)
 end
 

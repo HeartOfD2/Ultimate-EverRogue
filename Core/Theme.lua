@@ -1,6 +1,6 @@
 -- ---------------------------------------------------------------------------
 -- Look and feel. Two modes (dark, light) and three accents (teal, amber,
--- blue), taken from the project's color palette ("Refined Dev-Tool").
+-- blue).
 --
 -- Every color lives in the table T. The tables inside T never change identity:
 -- a theme switch rewrites their values in place and repaints everything that
@@ -14,8 +14,14 @@ local _, ns = ...
 
 ns.WHITE = "Interface\\Buttons\\WHITE8X8"
 
--- Arial Narrow for addon text; clients whose script it lacks keep the default font
-ns.FONT = not ({ koKR = true, zhCN = true, zhTW = true, ruRU = true })[ns.LOCALE] and "Fonts\\ARIALN.TTF" or nil
+-- Addon text uses Fira Sans SemiBold by default (ns.FONT_CHOICE_DEFAULT). The player can pick
+-- another full text font or the old Arial Narrow instead (account setting, applied by ns.ResolveFont once the
+-- saved variables exist); ns.FONT is the font in use. FONT_DEFAULT is Arial Narrow
+-- (nil on clients whose script it lacks): the fallback when a font file is missing.
+ns.FONT_DEFAULT = not ({ koKR = true, zhCN = true, zhTW = true, ruRU = true })[ns.LOCALE] and "Fonts\\ARIALN.TTF" or nil
+ns.FONT = ns.FONT_DEFAULT
+ns.FONT_CHOICE_DEFAULT = "firaSansSemi"   -- catalog key; also the damage numbers' default
+-- the fonts themselves are listed in Core/FontCatalog.lua
 
 local function RGB(hex, a)
     return { tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255, a or 1 }
@@ -67,11 +73,18 @@ local T = {
     hudText  = { 0.94, 0.95, 0.97, 1 },
     hudMuted = { 0.55, 0.58, 0.64, 1 },
     hudAlert = { 1.00, 0.36, 0.36, 1 },
+    hudNoPower  = { 0.35, 0.50, 1.00, 1 },   -- cooldown icon tint: too little resource
+    hudUnusable = { 0.45, 0.45, 0.50, 1 },   -- cooldown icon tint: not usable
     sheen    = { 1, 1, 1, 0.08 },
-    health   = { 0.22, 0.80, 0.45, 1 },
+    health   = { 0x37 / 255, 0xC9 / 255, 0x71 / 255, 1 },   -- #37C971
     combo    = { 0.92, 0.24, 0.30, 1 },
     comboMax = { 1.00, 0.80, 0.22, 1 },
     danger   = { 0.90, 0.12, 0.18, 1 },
+    -- threat states 0-3: low, high (about to pull), tanking insecure, tanking
+    threatLow      = { 0.22, 0.80, 0.45, 1 },
+    threatHigh     = { 1.00, 0.80, 0.22, 1 },
+    threatInsecure = { 1.00, 0.55, 0.20, 1 },
+    threatTanking  = { 0.92, 0.24, 0.30, 1 },
 }
 for i = 1, 10 do T.tags[i] = {} end
 ns.T = T
@@ -178,7 +191,9 @@ local POWER = {
     MANA = { 0.25, 0.50, 1.00 }, RAGE = { 0.90, 0.20, 0.22 }, FOCUS = { 1.00, 0.55, 0.25 },
     ENERGY = { 1.00, 0.80, 0.22 }, RUNIC_POWER = { 0.00, 0.82, 1.00 },
 }
+local ENERGY_COLOR = { 0xCD / 255, 0xDD / 255, 0 }   -- #CDDD00, the resource bar's default for energy
 function ns.PowerColor(token)
+    if token == "ENERGY" then return ENERGY_COLOR end
     local c = PowerBarColor and token and PowerBarColor[token]
     if type(c) == "table" and c.r then return { c.r, c.g, c.b } end
     return POWER[token or ""] or POWER.MANA
@@ -246,21 +261,49 @@ local OTHER_SCRIPTS = {
     { "russian", "Fonts\\FRIZQT___CYR.TTF" },
 }
 local families = {}
+local fontGeneration = 0   -- bumped when ns.FONT changes: family names must stay unique
 
 local function Family(size, flags)
     if type(CreateFontFamily) ~= "function" then return nil end
-    local key = size .. "|" .. flags
+    local key = size .. "|" .. flags .. "|" .. fontGeneration
     if families[key] == nil then
         local members = { { alphabet = "roman", file = ns.FONT, height = size, flags = flags } }
         for _, s in ipairs(OTHER_SCRIPTS) do
             members[#members + 1] = { alphabet = s[1], file = s[2], height = size, flags = flags }
         end
-        local name = ("EverFrameFont%d%s"):format(size, (flags:gsub("%W", "")))
+        local name = ("EverFrameFont%d%s_%d"):format(size, (flags:gsub("%W", "")), fontGeneration)
         local ok, fam = pcall(CreateFontFamily, name, members)
         families[key] = (ok and fam) or false
     end
     return families[key] or nil
 end
+
+-- can the client load this font file? (SetFont answers false for a missing one)
+local usableCache = {}
+function ns.FontUsable(path)
+    if usableCache[path] ~= nil then return usableCache[path] end
+    local ok, res = pcall(function() return CreateFont("EverFrameFontProbe"):SetFont(path, 12, "") end)
+    usableCache[path] = ok and res ~= false
+    return usableCache[path]
+end
+
+function ns.FontChoice()
+    local c = ns.Acct().font
+    return ns.FontIsGlobal(c) and c or ns.FONT_CHOICE_DEFAULT   -- nothing saved (or a display font) = the default
+end
+
+function ns.SetFontChoice(key) ns.Acct().font = key end
+
+-- the chosen font if its file loads, else the default (never an error)
+function ns.ResolveFont()
+    local path = ns.FontPath(ns.FontChoice())
+    local font = (path and ns.FontUsable(path)) and path or ns.FONT_DEFAULT
+    if font ~= ns.FONT then
+        ns.FONT = font
+        fontGeneration = fontGeneration + 1
+    end
+end
+ns.On("DB_READY", ns.ResolveFont)
 
 -- app text gets a shadow only in dark mode: on light surfaces a black shadow
 -- smears dark letters. Regions marked uerThemed keep this through re-fonting.

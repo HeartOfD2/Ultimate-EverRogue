@@ -125,7 +125,6 @@ local function Ask(band)
 end
 
 function range:Update()
-    local r = self.region
     if not UnitExists("target") then
         self.mode = L["no target"]
         self:SetBase(ns.Colorize(HEX.hudMuted, L["NO TARGET"]))
@@ -173,7 +172,7 @@ end
 
 function range:OnUpdate(elapsed)
     self.elapsed = self.elapsed + elapsed
-    if self.elapsed >= (ns.Char().range.interval or 0.1) then
+    if self.elapsed >= (ns.Char().range.interval or 0.2) then
         self.elapsed = 0
         self:Update()
     end

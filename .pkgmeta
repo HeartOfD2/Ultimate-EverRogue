@@ -1,5 +1,8 @@
 package-as: EverFrame
 
+move-folders:
+  EverFrame/EverFrame_IconData: EverFrame_IconData
+
 ignore:
   - docs
   - .github

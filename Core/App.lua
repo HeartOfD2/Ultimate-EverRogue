@@ -7,6 +7,10 @@
 -- Pages register themselves and are built the first time they open:
 --   App:AddPage({ key, section, label, order, Build(self, frame), Refresh(self),
 --                 IsVisible() })
+-- Blocks are parts of a page that come from elsewhere (modules); the page
+-- decides where they go (App:PlaceBlocks):
+--   App:AddBlock(pageKey, { key, order, Build(self, frame, width) -> height,
+--                           Refresh(self), IsVisible() })
 -- ---------------------------------------------------------------------------
 local _, ns = ...
 local L, T, HEX = ns.L, ns.T, ns.HEX
@@ -14,7 +18,8 @@ local UI = ns.UI
 
 local APP_W, APP_H = 820, 540
 local HEADER_H, FOOTER_H, SIDEBAR_W, PAD = 48, 28, 196, 16
-local NAV_H, NAV_HEAD_H = 28, 26
+local NAV_H, NAV_HEAD_H = 23, 20
+local NAV_TOP, NAV_HEAD_GAP, NAV_SECTION_GAP = 6, 2, 4
 
 local App = {
     pages = {}, byKey = {}, sections = {},
@@ -30,6 +35,7 @@ end
 
 App:AddSection("hud", L["HUD"], 10)
 App:AddSection("macros", L["MACROS"], 20)
+App:AddSection("extras", L["EXTRAS"], 30)
 App:AddSection("addon", L["ADDON"], 90)
 
 function App:AddPage(def)
@@ -42,12 +48,45 @@ end
 
 local function Visible(def) return not def.IsVisible or def.IsVisible() end
 
-local function SectionLabel(key)
-    for _, s in ipairs(App.sections) do if s.key == key then return s.label end end
-    return ""
+App.blocks = {}
+function App:AddBlock(pageKey, def)
+    def.order = def.order or 50
+    local list = self.blocks[pageKey] or {}
+    self.blocks[pageKey] = list
+    table.insert(list, def)
+    table.sort(list, function(a, b) return a.order < b.order end)
+    return def
 end
 
-local win, sidebar, content, crumb, statusText, navButtons
+-- stacks the visible blocks of a page from (x, y) down, each built the first
+-- time it shows; the others hide. Returns the y below the last one.
+function App:PlaceBlocks(pageKey, parent, x, y, width, gap)
+    for _, def in ipairs(self.blocks[pageKey] or {}) do
+        if Visible(def) then
+            if not def.frame then
+                def.frame = CreateFrame("Frame", nil, parent)
+                def.frame:SetSize(width, 1)
+                def.frame:SetHeight(def:Build(def.frame, width) or 1)
+            end
+            def.frame:ClearAllPoints()
+            def.frame:SetPoint("TOPLEFT", x, y)
+            def.frame:Show()
+            if def.Refresh then ns.SafeCall(def.Refresh, def) end
+            y = y - def.frame:GetHeight() - (gap or 16)
+        elseif def.frame then
+            def.frame:Hide()
+        end
+    end
+    return y
+end
+
+function App:SectionLabel(key)
+    for _, s in ipairs(self.sections) do if s.key == key then return s.label end end
+    return ""
+end
+local function SectionLabel(key) return App:SectionLabel(key) end
+
+local win, sidebar, nav, content, crumb, statusText, navButtons
 local current
 
 -- ---------------------------------------------------------------------------
@@ -172,7 +211,7 @@ local function Build()
     local version = ns.Text(footer, 11)
     version:SetPoint("RIGHT", -30, 0)
     ns.Color(version, T.muted)
-    version:SetText(("%s  ·  /ef"):format(ns.VERSION))
+    version:SetText(("%s %s  ·  /ef"):format(L["Version"], ns.VERSION))
     statusText = ns.Text(footer, 11)
     statusText:SetPoint("LEFT", SIDEBAR_W + PAD, 0)
     statusText:SetPoint("RIGHT", version, "LEFT", -12, 0)
@@ -201,12 +240,11 @@ local function Build()
     sline:SetWidth(1)
     ns.Color(sline, T.divider)
     navButtons = {}
-    -- name and version at the bottom of the sidebar
-    sidebar.foot = ns.Text(sidebar, 10)
-    sidebar.foot:SetPoint("BOTTOMLEFT", 16, 10)
-    sidebar.foot:SetPoint("BOTTOMRIGHT", -12, 10)
-    sidebar.foot:SetJustifyH("LEFT")
-    ns.Color(sidebar.foot, T.muted)
+    -- the entries scroll when they do not fit (many modules); the version lives in the footer
+    nav = UI.ScrollArea(sidebar)
+    nav:SetPoint("TOPLEFT")
+    nav:SetPoint("BOTTOMRIGHT", -1, 0)
+    nav.child:SetWidth(SIDEBAR_W - 1)
 
     -- content -----------------------------------------------------------------
     content = CreateFrame("Frame", nil, win)
@@ -235,7 +273,7 @@ end
 local function NavButton(i)
     local b = navButtons[i]
     if b then return b end
-    b = CreateFrame("Button", nil, sidebar)
+    b = CreateFrame("Button", nil, nav.child)
     b:SetHeight(NAV_H)
     b.bg = b:CreateTexture(nil, "BACKGROUND", nil, 1)       -- box of the open page
     b.bg:SetPoint("TOPLEFT", 10, -1)
@@ -281,7 +319,8 @@ end
 
 function App:RenderNav()
     if not win then return end
-    local i, y = 0, -8
+    local i, y = 0, -NAV_TOP
+    self.navBand = nil
     for _, s in ipairs(self.sections) do
         local any = false
         for _, def in ipairs(self.pages) do
@@ -303,7 +342,7 @@ function App:RenderNav()
             h.line:Show()
             h.bg:Hide()
             for _, e in ipairs(h.edge) do e:Hide() end
-            y = y - NAV_HEAD_H - 4
+            y = y - NAV_HEAD_H - NAV_HEAD_GAP
             for _, def in ipairs(self.pages) do
                 if def.section == s.key and Visible(def) then
                     i = i + 1
@@ -316,6 +355,7 @@ function App:RenderNav()
                     b.text:SetPoint("LEFT", 22, 0)
                     b.line:Hide()
                     local on = def.key == current
+                    if on then self.navBand = { -y, -y + NAV_H } end
                     b.bg:SetShown(on)
                     for _, e in ipairs(b.edge) do e:SetShown(on) end
                     b.mark:ClearAllPoints()
@@ -327,11 +367,16 @@ function App:RenderNav()
                     y = y - NAV_H
                 end
             end
-            y = y - 8
+            y = y - NAV_SECTION_GAP
         end
     end
     for j = i + 1, #navButtons do navButtons[j]:Hide() end
-    sidebar.foot:SetText(ns.TITLE .. " " .. ns.VERSION .. "  ·  Forever")
+    nav:SetContentHeight(-y + NAV_TOP)
+end
+
+-- the sidebar scrolls just far enough to show the open page
+function App:ShowCurrentInNav()
+    if nav and self.navBand then nav:EnsureVisible(self.navBand[1], self.navBand[2]) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -359,6 +404,7 @@ function App:Select(key)
     App:UpdateCrumb()
     App.Status(nil)
     self:RenderNav()
+    self:ShowCurrentInNav()
     if def.Refresh then ns.SafeCall(def.Refresh, def) end
 end
 
@@ -405,7 +451,7 @@ ns.On("MODULES_CHANGED", function()
     if not App:IsOpen() then return end
     App:RenderNav()
     local def = App.byKey[current]
-    if def and not Visible(def) then App:Select("modules") end
+    if def and not Visible(def) then App:Select("modules") else App:RefreshCurrent() end
 end)
 ns.On("THEME_CHANGED", function()
     if not win then return end

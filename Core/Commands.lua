@@ -32,8 +32,6 @@ end
 ns.AddCommand({ "settings", "options", "config" }, function() App:Open("general") end, L["open the settings"])
 ns.AddCommand({ "macros", "macro", "mm" }, function() App:Toggle("macros") end, L["macro manager"])
 ns.AddCommand({ "update" }, function() ns.Placeholders.UpdateAll() end, L["rewrite the macros named like a template with the current values"])
-ns.AddCommand({ "notes" }, function() App:Toggle("notes") end, L["notes"])
-ns.AddCommand({ "note" }, function() ns.NoteForTarget() end, L["new note for your target (works as a macro)"])
 ns.AddCommand({ "lock" }, function()
     HUD:SetLocked(true)
     ns.Print(L["Frame locked."])
@@ -83,6 +81,11 @@ ns.AddCommand({ "status" }, function()
     if range then
         if range.shown then range:Update() end
         print("   " .. L["Range checks: %s"]:format(range.mode or "—"))
+    end
+    local threat = HUD.byKey.threat
+    if threat then
+        if threat.shown then threat:Update() end
+        print("   " .. L["Threat: %s  ·  values secret (C_Secrets): %s"]:format(threat.mode or "—", threat:SecretFlag()))
     end
     local combo = HUD.byKey.combo
     if combo and combo:IsRelevant() and combo.mode then

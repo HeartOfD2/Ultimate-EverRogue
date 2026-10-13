@@ -40,12 +40,15 @@ end
 local state = { cp = 0, before = 0, droppedAt = 0 }
 ns.combo = state
 
--- returns the plain count (last known while secret) and the secret value, if any
+-- returns the plain count (last known while secret) and the secret value, if any;
+-- a changed plain count is announced as "COMBO_POINTS" (cp)
 local function Poll()
     local cp, hidden = ReadComboPoints()
     if cp then
-        if cp < state.cp then state.before, state.droppedAt = state.cp, GetTime() end
+        local was = state.cp
+        if cp < was then state.before, state.droppedAt = was, GetTime() end
         state.cp = cp
+        if cp ~= was then ns.Fire("COMBO_POINTS", cp) end
     end
     return state.cp, hidden
 end
@@ -65,45 +68,10 @@ local SHAPE_FILE = {
 ns.COMBO_SHAPES = { "bars", "circles", "diamonds" }
 ns.COMBO_EFFECTS = { "glow", "pulse", "wave", "none" }
 
--- a sound when all points are full: { key, label, SOUNDKIT name, kit ID }
-ns.COMBO_SOUNDS = {
-    { "raid",      L["Raid warning"],        "RAID_WARNING", 8959 },
-    { "ready",     L["Ready check"],         "READY_CHECK", 8960 },
-    { "boss",      L["Boss warning"],        "RAID_BOSS_EMOTE_WARNING", 12197 },
-    { "bossTell",  L["Boss whisper"],        "UI_RAID_BOSS_WHISPER_WARNING", 37666 },
-    { "ping",      L["Map ping"],            "MAP_PING", 3175 },
-    { "tell",      L["Whisper"],             "TELL_MESSAGE", 3081 },
-    { "gm",        L["GM message"],          "GM_CHAT_WARNING", 15273 },
-    { "alarm1",    L["Alarm clock 1"],       "ALARM_CLOCK_WARNING_1", 18871 },
-    { "alarm2",    L["Alarm clock 2"],       "ALARM_CLOCK_WARNING_2", 12867 },
-    { "alarm3",    L["Alarm clock 3"],       "ALARM_CLOCK_WARNING_3", 12889 },
-    { "tick",      L["Countdown tick"],      "UI_BATTLEGROUND_COUNTDOWN_TIMER", 25477 },
-    { "go",        L["Countdown end"],       "UI_BATTLEGROUND_COUNTDOWN_FINISHED", 25478 },
-    { "bg",        L["Battleground ready"],  "PVP_THROUGH_QUEUE", 8459 },
-    { "role",      L["Role check"],          "LFG_ROLE_CHECK", 17317 },
-    { "reward",    L["Reward"],              "LFG_REWARDS", 17316 },
-    { "trap",      L["Trap ready"],          "UI_PET_BATTLES_TRAP_READY", 28814 },
-    { "quest",     L["Quest complete"],      "IG_QUEST_LIST_COMPLETE", 878 },
-    { "questAuto", L["Quest done (short)"],  "UI_AUTO_QUEST_COMPLETE", 23404 },
-    { "coins",     L["Coins"],               "LOOT_WINDOW_COIN_SOUND", 120 },
-    { "invite",    L["Invite"],              "IG_PLAYER_INVITE", 880 },
-    { "auction",   L["Auction house"],       "AUCTION_WINDOW_OPEN", 5274 },
-}
-function ns.PlayComboSound(key)
-    for _, s in ipairs(ns.COMBO_SOUNDS) do
-        if s[1] == key then
-            local kit = rawget(_G, "SOUNDKIT")
-            local id = (kit and kit[s[3]]) or s[4]
-            if PlaySound then pcall(PlaySound, id, "Master") end
-            return
-        end
-    end
-end
-
 local combo = HUD:Register({
     key = "combo", order = 30, height = 12,
     label = L["Combo points"],
-    style = { height = 12, shape = "bars", maxEffect = "glow", soundOn = false, sound = "raid" },
+    style = { height = 12, shape = "bars", maxEffect = "glow", soundOn = true, sound = "GM_CHAT_WARNING", soundVolume = 100 },
     Build = function(self, parent)
         self.region = CreateFrame("Frame", nil, parent)
         self.region:SetHeight(self.height)
@@ -265,8 +233,8 @@ function combo:Update()
     self.mode = "plain"
     local atMax = cp >= max
     -- the moment the points fill up (only readable values; secret ones stay quiet)
-    if atMax and cp > 0 and not self.wasMax and HUD:Get("combo", "soundOn") then
-        ns.PlayComboSound(HUD:Get("combo", "sound"))
+    if atMax and cp > 0 and not self.wasMax and HUD:Get("combo", "soundOn") and not ns.TargetGoneOrDead() then
+        ns.Sound.Play(HUD:Get("combo", "sound"), HUD:Get("combo", "soundVolume"))
     end
     self.wasMax = atMax and cp > 0
     for i = 1, self.count do
@@ -290,10 +258,11 @@ function combo:Update()
             p.state = s
         end
     end
-    -- druids: points only matter in Cat Form (the energy form)
-    if ns.playerClass == "DRUID" then
+    -- classes whose points only matter in one form (druids: the energy form, see the class pack)
+    local need = ns.ClassPack().comboPowerType
+    if need then
         local _, token = UnitPowerType("player")
-        self.region:SetAlpha(token == "ENERGY" and 1 or 0.35)
+        self.region:SetAlpha(token == need and 1 or 0.35)
     end
 end
 

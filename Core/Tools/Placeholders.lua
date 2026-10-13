@@ -9,6 +9,8 @@
 --   {g:t1}      the trinkets (gear) in slot 13 / 14
 --   {g:t2}
 --   {c:name}    your own: a name with a value (account-wide)
+-- (Split: Placeholders.lua = roles, weapons, filling; PlaceholderGear.lua =
+-- changed gear, dialog, writing after combat; PlaceholderPage.lua = the page.)
 -- Modules add their own through the Fill of their template group (the
 -- rogue's {p:MH} / {p:OH}).
 -- Changed gear: a dialog suggests W1 / W2 for the new weapons (after combat);
@@ -16,8 +18,8 @@
 -- (sources: Placeholders.RegisterGearMacros).
 -- ---------------------------------------------------------------------------
 local _, ns = ...
-local L, T, HEX = ns.L, ns.T, ns.HEX
-local UI, App, Macros = ns.UI, ns.App, ns.Macros
+local L = ns.L
+local UI, Macros = ns.UI, ns.Macros
 
 local Placeholders = { gearSources = {}, updaters = {} }
 ns.Placeholders = Placeholders
@@ -26,7 +28,6 @@ local DAGGER = 15   -- Enum.ItemWeaponSubclass.Dagger
 local ANY = -1
 local WEAPON_CLASS = 2   -- Enum.ItemClass.Weapon
 local DUAL_WIELD = 674
-local GEAR_SLOTS = { 13, 14, 16, 17 }
 local NOT_HELD = { INVTYPE_RANGED = true, INVTYPE_RANGEDRIGHT = true, INVTYPE_THROWN = true,
                    INVTYPE_RELIC = true, INVTYPE_HOLDABLE = true, INVTYPE_SHIELD = true }
 
@@ -35,21 +36,11 @@ local NOT_HELD = { INVTYPE_RANGED = true, INVTYPE_RANGEDRIGHT = true, INVTYPE_TH
 -- ---------------------------------------------------------------------------
 local ROLE_DEFAULTS = { W1 = { type = DAGGER }, W2 = { type = ANY } }
 Placeholders.ROLES = { "W1", "W2" }
+Placeholders.GEAR_SLOTS = { 13, 14, 16, 17 }   -- trinkets and weapon hands
 
 function Placeholders.CharStore()
     local c = ns.Char()
-    if not c.placeholders then
-        c.placeholders = {}
-        -- the weapon types of the roles used to live in the rogue module
-        local rogue = c.modules and c.modules.rogue
-        if rogue then
-            if type(rogue.roles) == "table" then
-                c.placeholders.roles = {}
-                for r, v in pairs(rogue.roles) do c.placeholders.roles[r] = { type = v.type } end
-            end
-            rogue.roles, rogue.roleMemo, rogue.gearNotice, rogue.gearNotified = nil, nil, nil, nil
-        end
-    end
+    c.placeholders = c.placeholders or {}
     local s = c.placeholders
     s.roles = s.roles or {}
     for role, def in pairs(ROLE_DEFAULTS) do
@@ -97,6 +88,13 @@ local function ItemInfo(id)
     if not (id and C_Item and C_Item.GetItemInfoInstant) then return end
     local _, _, _, equipLoc, _, classID, subID = C_Item.GetItemInfoInstant(id)
     return classID, subID, equipLoc
+end
+
+-- the weapon subclass of an item that can sit in a hand slot (nil: not a held weapon)
+function Placeholders.HeldWeaponType(id)
+    if not id then return end
+    local classID, sub, loc = ItemInfo(id)
+    if classID == WEAPON_CLASS and not NOT_HELD[loc or ""] then return sub end
 end
 
 -- every weapon in the hands and the bags: { id, name, sub, slot (16/17/nil) }
@@ -243,6 +241,13 @@ function Placeholders.RoleRow(parent, role, getRoles, onChange)
     return row
 end
 
+-- the weapons and trinkets worn right now, as one key
+function Placeholders.GearKey()
+    local ids = {}
+    for _, slot in ipairs(Placeholders.GEAR_SLOTS) do ids[#ids + 1] = tostring(GetInventoryItemID("player", slot) or 0) end
+    return table.concat(ids, ":")
+end
+
 -- ---------------------------------------------------------------------------
 -- Filling in
 -- ---------------------------------------------------------------------------
@@ -296,390 +301,3 @@ function Placeholders.UsesGear(body)
     return body and (body:find("{w:", 1, true) or body:find("{g:", 1, true)) and true or false
 end
 
--- ---------------------------------------------------------------------------
--- Writing after combat (macro writes are blocked in combat), one job per key
--- ---------------------------------------------------------------------------
-local afterCombat, afterOrder = {}, {}
-function Placeholders.AfterCombat(key, fn)
-    if not afterCombat[key] then afterOrder[#afterOrder + 1] = key end
-    afterCombat[key] = fn
-end
-ns.RegisterEvent("PLAYER_REGEN_ENABLED", function()
-    C_Timer.After(0.1, function()
-        local order = afterOrder
-        afterOrder = {}
-        for _, key in ipairs(order) do
-            local fn = afterCombat[key]
-            afterCombat[key] = nil
-            if fn then fn() end
-        end
-    end)
-end)
-
--- ---------------------------------------------------------------------------
--- Changed gear: { Outdated() -> { names }, Update() -> { updated names } }
--- ---------------------------------------------------------------------------
-function Placeholders.RegisterGearMacros(src) table.insert(Placeholders.gearSources, src) end
--- extra jobs for /ef update (the rogue's built-in macros)
-function Placeholders.RegisterUpdater(fn) table.insert(Placeholders.updaters, fn) end
-
-local function GearOutdated()
-    local out = {}
-    for _, src in ipairs(Placeholders.gearSources) do
-        if not src.IsActive or src.IsActive() then
-            for _, n in ipairs(src.Outdated()) do out[#out + 1] = n end
-        end
-    end
-    return out
-end
-
--- rewrites every macro that uses the gear; one line in the chat
-function Placeholders.UpdateGearMacros()
-    if ns.InCombat() then
-        Placeholders.AfterCombat("gear", Placeholders.UpdateGearMacros)
-        return
-    end
-    local updated = {}
-    for _, src in ipairs(Placeholders.gearSources) do
-        if not src.IsActive or src.IsActive() then
-            for _, n in ipairs(src.Update() or {}) do updated[#updated + 1] = n end
-        end
-    end
-    if #updated > 0 then ns.Print(L["Gear changed, macros updated: %s"]:format(table.concat(updated, ", "))) end
-    Macros.Reload()
-    if Placeholders.RefreshPage then Placeholders.RefreshPage() end
-end
-
--- everything: templates, the modules' own macros (Placeholders page, /ef update)
-function Placeholders.UpdateAll()
-    if ns.Templates then ns.Templates.UpdateMacros() end
-    for _, fn in ipairs(Placeholders.updaters) do fn() end
-end
-
--- the weapons and trinkets worn right now, as one key
-local function GearKey()
-    local ids = {}
-    for _, slot in ipairs(GEAR_SLOTS) do ids[#ids + 1] = tostring(GetInventoryItemID("player", slot) or 0) end
-    return table.concat(ids, ":")
-end
-
--- ---------------------------------------------------------------------------
--- Dialog: new weapons or trinkets. Shows W1 / W2 with the suggestion; the
--- player confirms or changes it, then the macros follow.
--- ---------------------------------------------------------------------------
-local dlg, draft
-local function BuildDialog()
-    dlg = UI.Window("EverFrameGearDialog", 470, 236, L["New gear"], { strata = "FULLSCREEN_DIALOG" })
-    dlg.text = UI.Hint(dlg, "", 442)
-    dlg.text:SetPoint("TOPLEFT", 14, -36)
-    ns.Color(dlg.text, T.text)
-    dlg.rows = {}
-    for i, role in ipairs(Placeholders.ROLES) do
-        local r = Placeholders.RoleRow(dlg, role, function() return draft end, function()
-            for _, x in ipairs(dlg.rows) do x:Refresh() end
-        end)
-        r:SetPoint("TOPLEFT", 14, -96 - (i - 1) * 30)
-        dlg.rows[i] = r
-    end
-    dlg.note = UI.Hint(dlg, L["Macros with weapons or trinkets are written anew with this choice."], 442)
-    dlg.note:SetPoint("TOPLEFT", 14, -160)
-    local ok = UI.Button(dlg, 120, L["Apply"], function()
-        local roles = Placeholders.Roles()
-        for _, role in ipairs(Placeholders.ROLES) do
-            roles[role].type, roles[role].item = draft[role].type, draft[role].item
-        end
-        Placeholders.CharStore().seen = GearKey()
-        dlg:Hide()
-        Placeholders.UpdateGearMacros()
-    end, 24)
-    ok:SetPoint("BOTTOMRIGHT", -14, 14)
-    ok:SetAccent(true)
-    local later = UI.Button(dlg, 100, L["Later"], function()
-        Placeholders.CharStore().seen = GearKey()   -- not again for this gear
-        dlg:Hide()
-    end, 24)
-    later:SetPoint("RIGHT", ok, "LEFT", -6, 0)
-end
-
--- the suggestion after a weapon change: a role whose weapon is still in a
--- hand keeps it; a new weapon takes the place of a role whose weapon left
--- the hands (one of its own type first) and brings its type along
-function Placeholders.DraftForNewGear()
-    local roles = Placeholders.Roles()
-    local d = {}
-    for _, role in ipairs(Placeholders.ROLES) do d[role] = { type = roles[role].type, item = roles[role].item } end
-    local equipped, new = {}, {}
-    for _, slot in ipairs({ 16, 17 }) do
-        local id = GetInventoryItemID("player", slot)
-        local classID, sub, loc = ItemInfo(id)
-        if id and classID == WEAPON_CLASS and not NOT_HELD[loc or ""] then
-            equipped[id] = true
-            if id ~= roles.W1.item and id ~= roles.W2.item then new[#new + 1] = { id = id, sub = sub } end
-        end
-    end
-    local free = {}
-    for _, role in ipairs(Placeholders.ROLES) do
-        if not (d[role].item and equipped[d[role].item]) then free[#free + 1] = role end
-    end
-    for _, w in ipairs(new) do
-        local pick
-        for i, role in ipairs(free) do
-            if d[role].type == w.sub then pick = i break end
-        end
-        pick = pick or (#free > 0 and 1)
-        local role = pick and table.remove(free, pick) or "W2"
-        d[role].item, d[role].type = w.id, w.sub
-    end
-    return d
-end
-
-function Placeholders.ShowGearDialog(newNames)
-    draft = Placeholders.DraftForNewGear()
-    if not dlg then BuildDialog() end
-    dlg.text:SetText(L["New gear: %s.\nPlease check which weapon is W1 and which is W2:"]:format(
-        ns.Colorize(HEX.good, table.concat(newNames, ", "))))
-    for _, r in ipairs(dlg.rows) do r:Refresh() end
-    UI.PlaceDialog(dlg)
-    dlg:Show()
-    dlg:Raise()
-end
-
-local checkAfterCombat = false
-local function CheckGear()
-    if not ns.ready then return end
-    if ns.InCombat() then checkAfterCombat = true return end
-    if not GetInventoryItemID("player", 16) then return end   -- mid-swap: wait for the weapon
-    local s = Placeholders.CharStore()
-    local roles = s.roles
-    -- first time: take the suggestion without asking
-    if not (roles.W1.item or roles.W2.item) then
-        local sug = Placeholders.SuggestAll()
-        roles.W1.item, roles.W2.item = sug.W1, sug.W2
-        s.seen = GearKey()
-    end
-    -- weapons in the hands that are neither W1 nor W2 (swapping the two is fine)
-    local new = {}
-    for _, slot in ipairs({ 16, 17 }) do
-        local id = GetInventoryItemID("player", slot)
-        local classID, _, loc = ItemInfo(id)
-        if id and classID == WEAPON_CLASS and not NOT_HELD[loc or ""] and id ~= roles.W1.item and id ~= roles.W2.item then
-            new[#new + 1] = ns.EquippedName(slot) or ("item:" .. id)
-        end
-    end
-    local outdated = GearOutdated()
-    if #new == 0 and #outdated == 0 then return end
-    if s.seen == GearKey() then return end   -- asked for this gear already
-    if #new == 0 then
-        -- trinkets (or a weapon back in its role): name what changed
-        for _, slot in ipairs({ 13, 14 }) do
-            local n = ns.EquippedName(slot)
-            if n then new[#new + 1] = n end
-        end
-    end
-    Placeholders.ShowGearDialog(new)
-end
-Placeholders.CheckGear = CheckGear
-
-local token = 0
-ns.RegisterEvent("PLAYER_EQUIPMENT_CHANGED", function(_, slot)
-    if not ns.IndexOf(GEAR_SLOTS, slot) then return end
-    if Placeholders.RefreshPage then Placeholders.RefreshPage() end
-    -- a swap fires several events: judge the gear once it has settled
-    token = token + 1
-    local mine = token
-    C_Timer.After(1.5, function() if mine == token then CheckGear() end end)
-end)
-ns.On("LOGIN", function() C_Timer.After(3, CheckGear) end)
-ns.RegisterEvent("PLAYER_REGEN_ENABLED", function()
-    if checkAfterCombat then
-        checkAfterCombat = false
-        C_Timer.After(0.2, CheckGear)
-    end
-end)
-ns.RegisterEvent("PLAYER_REGEN_DISABLED", function()
-    -- the dialog waits for the end of combat
-    if dlg and dlg:IsShown() then dlg:Hide() checkAfterCombat = true end
-end)
-
--- ---------------------------------------------------------------------------
--- Page: Macros › Placeholders
--- ---------------------------------------------------------------------------
-local CUSTOM_ROWS, ROW = 6, 28
-
-local function BuildPage(p)
-    local W = App.CONTENT_W
-
-    UI.Label(p, L["GEAR"], 0, 0)
-    local roleRows = {}
-    local function RolesChanged()
-        for _, r in ipairs(roleRows) do r:Refresh() end
-        Placeholders.CharStore().seen = GearKey()
-        Placeholders.UpdateGearMacros()
-    end
-    for i, role in ipairs(Placeholders.ROLES) do
-        local r = Placeholders.RoleRow(p, role, Placeholders.Roles, RolesChanged)
-        r:SetPoint("TOPLEFT", 0, -18 - (i - 1) * ROW)
-        roleRows[i] = r
-    end
-    -- trinkets: fixed slots
-    local trinkets = {}
-    for n = 1, 2 do
-        local y = -18 - (n + 1) * ROW - 4
-        local t = {}
-        t.code = ns.Text(p, 13)
-        t.code:SetPoint("TOPLEFT", 0, y)
-        t.code:SetText(ns.Code("{g:t" .. n .. "}"))
-        t.slot = ns.Text(p, 12)
-        t.slot:SetPoint("TOPLEFT", 50, y)
-        ns.Color(t.slot, T.muted)
-        t.slot:SetText(L["Trinket %d (slot %d)"]:format(n, 12 + n))
-        t.found = ns.Text(p, 12)
-        t.found:SetPoint("TOPLEFT", 196, y)
-        t.found:SetPoint("TOPRIGHT", 0, y)
-        t.found:SetJustifyH("LEFT")
-        t.found:SetWordWrap(false)
-        trinkets[n] = t
-    end
-
-    local GY = -18 - 4 * ROW - 6
-    local refreshAll = UI.Button(p, 130, L["Refresh"], function() Placeholders.UpdateAll() end, 22)
-    refreshAll:SetPoint("TOPLEFT", 0, GY)
-    refreshAll:SetAccent(true)
-    UI.Tooltip(refreshAll, { L["Refresh"], L["Rewrites every macro named exactly like a template (general or character) and the rogue's macros with the current values."] })
-    local gearTpl = UI.Button(p, 172, "+  " .. L["Template with gear"], function()
-        ns.Templates.New({ group = L["Gear"], body = "#showtooltip\n/equipslot 16 {w:W1}\n/equipslot 17 {w:W2}" })
-        App.Status(L["Name it and save: macros with this name follow your gear."])
-    end, 22)
-    gearTpl:SetPoint("LEFT", refreshAll, "RIGHT", 6, 0)
-    UI.Tooltip(gearTpl, { L["Template with gear"], L["A template with {w:W1} and {w:W2}: they become the weapons picked above. Export and import it with the templates."] })
-
-    -- own placeholders
-    local CY = GY - 36
-    UI.Label(p, L["YOUR PLACEHOLDERS"], 0, CY)
-    local list = CreateFrame("Frame", nil, p)
-    list:SetPoint("TOPLEFT", 0, CY - 18)
-    list:SetSize(W, CUSTOM_ROWS * ROW)
-    list:EnableMouseWheel(true)
-    local empty = UI.Hint(list, L["None yet. \"+ Placeholder\" adds one: a name and a value, e.g. {c:me} = Ketchup."], W)
-    empty:SetPoint("TOPLEFT", 0, -4)
-    local scroll = 0
-    local cRows = {}
-    local Render
-
-    local function Commit(r)
-        local c = r.entry
-        if not c then return end
-        local name = ns.Trim(r.name:GetText())
-        local value = r.value:GetText()
-        if name ~= c.name then
-            if name == "" or name:find("[{}:%s]") then
-                App.Status(L["A name without spaces, braces or colons, please."], true)
-                r.name:SetText(c.name)
-            elseif Placeholders.FindCustom(name) then
-                App.Status(L["{c:%s} exists already."]:format(name), true)
-                r.name:SetText(c.name)
-            else
-                c.name = name
-            end
-        end
-        if value ~= c.value then
-            c.value = value
-            -- macros with this placeholder take the new value
-            if ns.Templates then ns.Templates.UpdateMacros(function(t) return t.body:find("{c:" .. c.name .. "}", 1, true) end) end
-        end
-        r.code:SetText(ns.Code("{c:" .. c.name .. "}"))
-    end
-
-    for i = 1, CUSTOM_ROWS do
-        local r = CreateFrame("Frame", nil, list)
-        r:SetPoint("TOPLEFT", 0, -(i - 1) * ROW)
-        r:SetSize(W, ROW)
-        r.name = UI.LineEdit(r, 12, 24)
-        r.name:SetPoint("LEFT", 0, 0)
-        r.name:SetSize(130, 22)
-        r.eq = ns.Text(r, 12)
-        r.eq:SetPoint("LEFT", 136, 0)
-        r.eq:SetText("=")
-        r.value = UI.LineEdit(r, 12, 200)
-        r.value:SetPoint("LEFT", 150, 0)
-        r.value:SetSize(W - 150 - 30 - 150, 22)
-        r.code = ns.Text(r, 11)
-        r.code:SetPoint("LEFT", r.value, "RIGHT", 8, 0)
-        r.code:SetWidth(140)
-        r.code:SetJustifyH("LEFT")
-        r.code:SetWordWrap(false)
-        r.del = UI.ConfirmButton(r, 24, "×", function()
-            local _, idx = Placeholders.FindCustom(r.entry and r.entry.name)
-            if idx then table.remove(Custom(), idx) end
-            Render()
-        end, 22)
-        r.del:SetPoint("RIGHT", 0, 0)
-        UI.Tooltip(r.del, { L["Delete"], L["Click twice to confirm."] })
-        for _, e in ipairs({ r.name, r.value }) do
-            e:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-            e:HookScript("OnEditFocusLost", function() Commit(r) end)
-        end
-        cRows[i] = r
-    end
-
-    Render = function()
-        local all = Custom()
-        scroll = math.max(0, math.min(scroll, #all - CUSTOM_ROWS))
-        empty:SetShown(#all == 0)
-        for i, r in ipairs(cRows) do
-            local c = all[scroll + i]
-            r.entry = c
-            if c then
-                if not r.name:HasFocus() then r.name:SetText(c.name) end
-                if not r.value:HasFocus() then r.value:SetText(c.value or "") end
-                r.code:SetText(ns.Code("{c:" .. c.name .. "}"))
-                r:Show()
-            else
-                r:Hide()
-            end
-        end
-    end
-    list:SetScript("OnMouseWheel", function(_, delta) scroll = scroll - delta Render() end)
-
-    local add = UI.Button(p, 130, "+  " .. L["Placeholder"], function()
-        local all, n = Custom(), 1
-        while Placeholders.FindCustom(L["name"] .. n) do n = n + 1 end
-        all[#all + 1] = { name = L["name"] .. n, value = "" }
-        scroll = #all
-        Render()
-        for _, r in ipairs(cRows) do
-            if r.entry == all[#all] then r.name:SetFocus() r.name:HighlightText() end
-        end
-    end, 22)
-    add:SetPoint("TOPRIGHT", 0, CY + 4)
-
-    local note = UI.Hint(p, L["Use them in templates. Refresh rewrites every macro named exactly like a template, general or character, with the current values; other macros are never changed."], W)
-    note:SetPoint("BOTTOMLEFT", 0, 0)
-    note:SetSpacing(2)
-
-    Placeholders.RefreshPage = function()
-        if not p:IsVisible() then return end
-        for _, r in ipairs(roleRows) do r:Refresh() end
-        for n, t in ipairs(trinkets) do
-            local name = Placeholders.Trinket(n)
-            t.found:SetText(name and ("= " .. ns.Colorize(HEX.good, name)) or ns.Muted(L["(nothing in this slot)"]))
-        end
-        Render()
-    end
-end
-
-App:AddPage({
-    key = "placeholders", section = "macros", label = L["Placeholders"], order = 100,
-    Build = function(_, frame) BuildPage(frame) end,
-    Refresh = function() if Placeholders.RefreshPage then Placeholders.RefreshPage() end end,
-})
-
-ns.RegisterReset({ key = "gear", order = 76, label = L["Weapon roles"],
-    desc = L["W1 / W2 back to dagger / any weapon, picked anew from what you carry."],
-    reset = function() ns.Char().placeholders = nil end })
-ns.RegisterReset({ key = "customPlaceholders", order = 87, label = L["Own placeholders"], accountWide = true,
-    desc = L["Deletes your own placeholders {c:...}."],
-    reset = function()
-        local a = ns.Acct()
-        if a.placeholders then a.placeholders.custom = nil end
-    end })
